@@ -9,6 +9,7 @@ import pytest
 # Session identifiers
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def valid_session_id() -> str:
     return "550e8400-e29b-41d4-a716-446655440000"
@@ -22,6 +23,7 @@ def valid_segment_id() -> str:
 # ---------------------------------------------------------------------------
 # Landmark arrays
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def valid_face_landmarks() -> list[list[float]]:
@@ -47,6 +49,7 @@ def valid_pose_landmarks() -> list[list[float]]:
 # ---------------------------------------------------------------------------
 # Audio features
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def valid_audio_features() -> list[list[float]]:

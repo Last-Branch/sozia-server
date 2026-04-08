@@ -102,9 +102,7 @@ def _validate_landmark_array(
             z is always unconstrained (MediaPipe relative depth).
     """
     if len(arr) != expected_len:
-        raise ValueError(
-            f"{name} must have {expected_len} points, got {len(arr)}"
-        )
+        raise ValueError(f"{name} must have {expected_len} points, got {len(arr)}")
     for i, point in enumerate(arr):
         if len(point) != 3:
             raise ValueError(
@@ -113,13 +111,9 @@ def _validate_landmark_array(
         if check_xy_unit_range:
             x, y = point[0], point[1]
             if not (0.0 <= x <= 1.0):
-                raise ValueError(
-                    f"{name}[{i}].x must be in [0.0, 1.0], got {x}"
-                )
+                raise ValueError(f"{name}[{i}].x must be in [0.0, 1.0], got {x}")
             if not (0.0 <= y <= 1.0):
-                raise ValueError(
-                    f"{name}[{i}].y must be in [0.0, 1.0], got {y}"
-                )
+                raise ValueError(f"{name}[{i}].y must be in [0.0, 1.0], got {y}")
 
 
 def _validate_rectangular_2d(
@@ -238,7 +232,9 @@ class PipelineHealth:
     def __post_init__(self) -> None:
         _validate_non_empty_str(self.session_id, "session_id")
         if self.pipeline not in {"audio", "video"}:
-            raise ValueError(f"pipeline must be 'audio' or 'video', got '{self.pipeline}'")
+            raise ValueError(
+                f"pipeline must be 'audio' or 'video', got '{self.pipeline}'"
+            )
         _validate_non_negative_int(self.last_updated_ms, "last_updated_ms")
 
         if self.pipeline == "audio":
@@ -307,22 +303,30 @@ class LandmarkFrame:
 
         if self.face_landmarks is not None:
             _validate_landmark_array(
-                self.face_landmarks, FACE_LANDMARK_COUNT, "face_landmarks",
+                self.face_landmarks,
+                FACE_LANDMARK_COUNT,
+                "face_landmarks",
                 check_xy_unit_range=True,
             )
         if self.left_hand_landmarks is not None:
             _validate_landmark_array(
-                self.left_hand_landmarks, HAND_LANDMARK_COUNT, "left_hand_landmarks",
+                self.left_hand_landmarks,
+                HAND_LANDMARK_COUNT,
+                "left_hand_landmarks",
                 check_xy_unit_range=True,
             )
         if self.right_hand_landmarks is not None:
             _validate_landmark_array(
-                self.right_hand_landmarks, HAND_LANDMARK_COUNT, "right_hand_landmarks",
+                self.right_hand_landmarks,
+                HAND_LANDMARK_COUNT,
+                "right_hand_landmarks",
                 check_xy_unit_range=True,
             )
         if self.pose_landmarks is not None:
             _validate_landmark_array(
-                self.pose_landmarks, POSE_LANDMARK_COUNT, "pose_landmarks",
+                self.pose_landmarks,
+                POSE_LANDMARK_COUNT,
+                "pose_landmarks",
                 check_xy_unit_range=True,
             )
 
@@ -363,7 +367,9 @@ class AudioFeatureChunk:
                 f"got '{self.feature_type}'"
             )
         if self.sample_rate_hz <= 0:
-            raise ValueError(f"sample_rate_hz must be positive, got {self.sample_rate_hz}")
+            raise ValueError(
+                f"sample_rate_hz must be positive, got {self.sample_rate_hz}"
+            )
         if self.chunk_duration_ms <= 0:
             raise ValueError(
                 f"chunk_duration_ms must be > 0, got {self.chunk_duration_ms}"

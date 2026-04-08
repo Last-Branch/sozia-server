@@ -29,7 +29,14 @@ from sozia.common.models import (
 class TestSessionState:
     def test_all_values_present(self):
         names = {s.name for s in SessionState}
-        assert names == {"IDLE", "INITIALIZING", "RUNNING", "PAUSED", "DEGRADED", "ERROR"}
+        assert names == {
+            "IDLE",
+            "INITIALIZING",
+            "RUNNING",
+            "PAUSED",
+            "DEGRADED",
+            "ERROR",
+        }
 
     def test_string_values_match_names(self):
         for state in SessionState:
@@ -51,7 +58,10 @@ class TestModalityPath:
 class TestModalityType:
     def test_all_values_present(self):
         assert {t.name for t in ModalityType} == {
-            "ASR", "LIP_READING", "TSL_RECOGNITION", "GLOSS_TO_TEXT"
+            "ASR",
+            "LIP_READING",
+            "TSL_RECOGNITION",
+            "GLOSS_TO_TEXT",
         }
 
     def test_string_values_match_names(self):
@@ -85,9 +95,7 @@ class TestModelConfig:
         assert cfg.device == "cuda"
 
     def test_frozen(self):
-        cfg = ModelConfig(
-            model_id="m", weights_path="/p", device="cpu", params={}
-        )
+        cfg = ModelConfig(model_id="m", weights_path="/p", device="cpu", params={})
         with pytest.raises(Exception):  # FrozenInstanceError
             cfg.model_id = "other"  # type: ignore[misc]
 
@@ -275,7 +283,9 @@ class TestLandmarkFrame:
         assert len(f.face_landmarks) == 83
 
     def test_happy_path_pose_only(self):
-        f = self._make(face_landmarks=None, left_hand_landmarks=None, right_hand_landmarks=None)
+        f = self._make(
+            face_landmarks=None, left_hand_landmarks=None, right_hand_landmarks=None
+        )
         assert f.pose_landmarks is not None
 
     def test_all_none_raises(self):
