@@ -8,7 +8,10 @@ from sozia.common.models import (
     PipelineHealth,
     SegmentStatus,
 )
-from sozia.fusion.degraded_mode_handler import DegradedModeHandler
+from sozia.fusion.degraded_mode_handler import (
+    DegradedModeHandler,
+    DegradedStatus,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -156,3 +159,82 @@ class TestHandleDegradedInput:
         assert seg is not None
         assert seg.timestamp_ms == 1000
         assert seg.duration_ms == 500
+
+
+class TestEvaluate:
+    def test_empty_health_is_failed(self):
+        handler = DegradedModeHandler()
+        assert handler.evaluate([]) == DegradedStatus.FAILED
+
+    def test_all_healthy_is_normal(self):
+        handler = DegradedModeHandler()
+        status = handler.evaluate([_audio_health(), _video_health()])
+        assert status == DegradedStatus.NORMAL
+
+    def test_one_down_is_degraded(self):
+        handler = DegradedModeHandler()
+        status = handler.evaluate(
+            [_audio_health(available=False), _video_health()],
+        )
+        assert status == DegradedStatus.DEGRADED
+
+    def test_all_down_is_failed(self):
+        handler = DegradedModeHandler()
+        status = handler.evaluate(
+            [
+                _audio_health(available=False),
+                _video_health(available=False),
+            ],
+        )
+        assert status == DegradedStatus.FAILED
+
+    def test_video_obstructed_counts_as_degraded(self):
+        handler = DegradedModeHandler()
+        status = handler.evaluate(
+            [_audio_health(), _video_health(face_detected=False)],
+        )
+        assert status == DegradedStatus.DEGRADED
+
+
+class TestAdvisoryMessage:
+    def test_all_healthy_returns_none(self):
+        handler = DegradedModeHandler()
+        assert handler.get_advisory_message(
+            [_audio_health(), _video_health()],
+        ) is None
+
+    def test_empty_health_returns_terminal_message(self):
+        handler = DegradedModeHandler()
+        msg = handler.get_advisory_message([])
+        assert msg is not None
+        assert "session ending" in msg.lower()
+
+    def test_camera_obstructed_message(self):
+        handler = DegradedModeHandler()
+        msg = handler.get_advisory_message(
+            [_video_health(face_detected=False)],
+        )
+        assert msg is not None
+        assert "camera obstructed" in msg.lower()
+
+    def test_microphone_unavailable_message(self):
+        handler = DegradedModeHandler()
+        msg = handler.get_advisory_message(
+            [_audio_health(available=False)],
+        )
+        assert msg is not None
+        assert "microphone unavailable" in msg.lower()
+
+    def test_low_snr_message(self):
+        handler = DegradedModeHandler()
+        msg = handler.get_advisory_message([_audio_health(snr=2.0)])
+        assert msg is not None
+        assert "low audio" in msg.lower()
+
+    def test_camera_unavailable_message(self):
+        handler = DegradedModeHandler()
+        msg = handler.get_advisory_message(
+            [_video_health(available=False)],
+        )
+        assert msg is not None
+        assert "camera unavailable" in msg.lower()
