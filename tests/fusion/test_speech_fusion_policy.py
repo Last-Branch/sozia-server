@@ -119,12 +119,13 @@ class TestFuseLipOnly:
 class TestFuseBothModalities:
     def test_both_emits_final(self):
         policy = SpeechFusionPolicy()
-        segments = policy.fuse([_asr(), _lip()], _health())
+        segments = policy.fuse(
+            [_asr(confidence=0.70), _lip(confidence=0.85)], _health(),
+        )
 
         assert len(segments) == 1
         seg = segments[0]
         assert seg.status == SegmentStatus.FINAL
-        assert seg.source == ModalityType.LIP_READING
 
     def test_weighted_confidence(self):
         policy = SpeechFusionPolicy()
@@ -134,12 +135,29 @@ class TestFuseBothModalities:
         # 0.65 * 0.90 + 0.35 * 0.80 = 0.585 + 0.28 = 0.865
         assert abs(segments[0].confidence - 0.865) < 0.001
 
-    def test_lip_text_preferred_when_available(self):
+    def test_higher_confidence_lip_text_wins(self):
         policy = SpeechFusionPolicy()
         segments = policy.fuse(
-            [_asr(text="merhaba"), _lip(text="merhaba dünya")], _health(),
+            [
+                _asr(text="merhaba", confidence=0.70),
+                _lip(text="merhaba dünya", confidence=0.85),
+            ],
+            _health(),
         )
         assert segments[0].text == "merhaba dünya"
+        assert segments[0].source == ModalityType.LIP_READING
+
+    def test_higher_confidence_asr_text_wins(self):
+        policy = SpeechFusionPolicy()
+        segments = policy.fuse(
+            [
+                _asr(text="merhaba", confidence=0.90),
+                _lip(text="merhaba dünya", confidence=0.60),
+            ],
+            _health(),
+        )
+        assert segments[0].text == "merhaba"
+        assert segments[0].source == ModalityType.ASR
 
     def test_asr_text_fallback_when_lip_empty(self):
         policy = SpeechFusionPolicy()
@@ -147,6 +165,7 @@ class TestFuseBothModalities:
             [_asr(text="merhaba"), _lip(text="")], _health(),
         )
         assert segments[0].text == "merhaba"
+        assert segments[0].source == ModalityType.ASR
 
     def test_duration_takes_max(self):
         policy = SpeechFusionPolicy()

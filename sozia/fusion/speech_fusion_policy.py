@@ -77,7 +77,14 @@ class SpeechFusionPolicy(FusionStrategy):
 
         if asr and lip:
             # Both modalities → weighted merge → FINAL replacing the PARTIAL.
-            merged_text = lip.text if lip.text else asr.text
+            # Prefer the text from whichever hypothesis has higher confidence;
+            # if lip text is empty, fall back to ASR regardless.
+            if lip.text and lip.confidence >= asr.confidence:
+                merged_text = lip.text
+                merged_source = ModalityType.LIP_READING
+            else:
+                merged_text = asr.text
+                merged_source = ModalityType.ASR
             merged_confidence = (
                 self._asr_weight * asr.confidence
                 + self._lip_weight * lip.confidence
@@ -88,7 +95,7 @@ class SpeechFusionPolicy(FusionStrategy):
                 session_id=session_id,
                 status=SegmentStatus.FINAL,
                 text=merged_text,
-                source=ModalityType.LIP_READING,
+                source=merged_source,
                 confidence=min(1.0, merged_confidence),
                 timestamp_ms=asr.timestamp_ms,
                 duration_ms=max(asr.duration_ms, lip.duration_ms),
