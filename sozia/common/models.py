@@ -376,6 +376,73 @@ class AudioFeatureChunk:
             )
 
 
+_VALID_ERROR_CODES = frozenset({4001, 4002, 4003, 4004})
+
+
+@dataclass(frozen=True)
+class SessionStatusMessage:
+    """Outbound server→client session lifecycle notification.
+
+    Sent by the gateway during connection setup and whenever the session
+    state changes (e.g. INITIALIZING while models are loading, DEGRADED
+    when a pipeline becomes unavailable). Always precedes or accompanies
+    a TranscriptSegment stream — never replaces it.
+
+    Wire format: JSON with ``type`` field set to ``"session_status"``.
+
+    Serialisation note: ``state`` must be serialised as its string value
+    (e.g. ``"INITIALIZING"``), not as the enum object.
+
+    Args:
+        session_id: UUID v4 of the active session.
+        state: Current lifecycle state of the session.
+        message: Human-readable detail for the client UI (e.g.
+            "Loading speech models…"). May be empty.
+    """
+
+    session_id: str
+    state: SessionState
+    message: str
+
+    def __post_init__(self) -> None:
+        _validate_non_empty_str(self.session_id, "session_id")
+
+
+@dataclass(frozen=True)
+class ErrorMessage:
+    """Outbound server→client error notification.
+
+    Sent immediately before the server closes the WebSocket connection.
+    The client should surface ``message`` to the user and treat the
+    connection as terminated.
+
+    Wire format: JSON with ``type`` field set to ``"error"``.
+
+    Close code semantics:
+        4001 — authentication failure (bad or missing api_key)
+        4002 — malformed session_init payload
+        4003 — duplicate session_id (session already active)
+        4004 — model warm-up failed (server-side error)
+
+    Args:
+        session_id: UUID v4 of the session, or empty string if the
+            connection failed before a session_id was established.
+        code: WebSocket application close code in {4001, 4002, 4003, 4004}.
+        message: Human-readable error description.
+    """
+
+    session_id: str
+    code: int
+    message: str
+
+    def __post_init__(self) -> None:
+        if self.code not in _VALID_ERROR_CODES:
+            raise ValueError(
+                f"code must be one of {sorted(_VALID_ERROR_CODES)}, got {self.code}"
+            )
+        _validate_non_empty_str(self.message, "message")
+
+
 @dataclass(frozen=True)
 class TranscriptSegment:
     """The primary output of the Sozia system.

@@ -17,6 +17,7 @@ from sozia.common.models import (
     HAND_LANDMARK_COUNT,
     POSE_LANDMARK_COUNT,
     AudioFeatureChunk,
+    ErrorMessage,
     LandmarkFrame,
     ModalityPath,
     ModalityResult,
@@ -25,6 +26,7 @@ from sozia.common.models import (
     PipelineHealth,
     SegmentStatus,
     SessionState,
+    SessionStatusMessage,
     TranscriptSegment,
 )
 
@@ -41,6 +43,8 @@ __all__ = [
     "LandmarkFrame",
     "AudioFeatureChunk",
     "TranscriptSegment",
+    "SessionStatusMessage",
+    "ErrorMessage",
     # Constants
     "FACE_LANDMARK_COUNT",
     "HAND_LANDMARK_COUNT",
