@@ -13,19 +13,33 @@ it only touches the ``InferenceEngine`` interface (``load_model``,
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+import time
+import uuid
+from typing import TYPE_CHECKING, Awaitable, Callable
 
+import numpy as np
+
+from sozia.common.interfaces import InferenceTimeoutError
 from sozia.common.models import (
+    AudioFeatureChunk,
+    LandmarkFrame,
     ModalityPath,
     ModalityResult,
+    ModalityType,
     ModelConfig,
     PipelineHealth,
+    SegmentStatus,
     TranscriptSegment,
 )
 from sozia.fusion.degraded_mode_handler import DegradedModeHandler
+from sozia.fusion.frame_accumulator import FrameAccumulator
 
 if TYPE_CHECKING:
     from sozia.common.interfaces import FusionStrategy, InferenceEngine
+
+# Confidence penalty applied when GlossToText times out and we promote
+# the raw TSL gloss to a FINAL segment.
+_GLOSS_TIMEOUT_CONFIDENCE_PENALTY = 0.15
 
 
 class FusionOrchestrator:
@@ -35,12 +49,16 @@ class FusionOrchestrator:
 
         orchestrator = FusionOrchestrator()
         orchestrator.register_policy(ModalityPath.SPEECH, speech_policy)
-        orchestrator.register_engine(ModalityPath.SPEECH, asr_engine, asr_cfg)
-        orchestrator.register_engine(ModalityPath.SPEECH, lip_engine, lip_cfg)
+        orchestrator.register_engine(
+            ModalityPath.SPEECH, ModalityType.ASR, asr_engine, asr_cfg,
+        )
+        orchestrator.register_engine(
+            ModalityPath.SPEECH, ModalityType.LIP_READING, lip_engine, lip_cfg,
+        )
 
         await orchestrator.warm_up(ModalityPath.SPEECH)
-        segments = await orchestrator.process_features(
-            session_id, results, health, ModalityPath.SPEECH,
+        await orchestrator.process(
+            session_id, audio_chunk, health, ModalityPath.SPEECH, send_fn,
         )
         await orchestrator.cool_down()
     """
@@ -48,14 +66,19 @@ class FusionOrchestrator:
     def __init__(
         self,
         degraded_handler: DegradedModeHandler | None = None,
+        window_size: int = 30,
     ) -> None:
         self._policies: dict[ModalityPath, FusionStrategy] = {}
+        # Keyed by (path, modality_type) → (engine, config).
         self._engines: dict[
-            ModalityPath, list[tuple[InferenceEngine, ModelConfig]],
+            ModalityPath, dict[ModalityType, tuple[InferenceEngine, ModelConfig]]
         ] = {}
         self._degraded: DegradedModeHandler = (
             degraded_handler or DegradedModeHandler()
         )
+        self._accumulator = FrameAccumulator(window_size=window_size)
+        # Per-session face landmark cache (SPEECH path — fed to LipReadingEngine).
+        self._face_cache: dict[str, np.ndarray] = {}
 
     # ------------------------------------------------------------------
     # Registration
@@ -70,16 +93,26 @@ class FusionOrchestrator:
     def register_engine(
         self,
         path: ModalityPath,
+        modality_type: ModalityType,
         engine: InferenceEngine,
         config: ModelConfig,
     ) -> None:
-        """Attach an inference engine to a modality path for warm-up.
+        """Attach an inference engine to a modality path keyed by ModalityType.
 
         The orchestrator records the (engine, config) pair but does not
-        load the model until ``warm_up(path)`` is called. Engines stay
-        attached across sessions; ``cool_down()`` unloads them.
+        load the model until ``warm_up(path)`` is called. Registering the
+        same ``modality_type`` twice on the same ``path`` overwrites the
+        previous entry.
+
+        Args:
+            path: Which inference pipeline this engine belongs to.
+            modality_type: The ModalityType this engine produces
+                (e.g. ``ModalityType.ASR``). Used by ``process()`` to route
+                features to the correct engine without string-matching model IDs.
+            engine: A concrete InferenceEngine instance.
+            config: ModelConfig passed to ``engine.load_model()`` during warm-up.
         """
-        self._engines.setdefault(path, []).append((engine, config))
+        self._engines.setdefault(path, {})[modality_type] = (engine, config)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -93,11 +126,11 @@ class FusionOrchestrator:
         cold-start latency; errors from individual engines propagate so
         the caller can decide whether to abort session setup.
         """
-        engines = self._engines.get(path, [])
+        engines = self._engines.get(path, {})
         await asyncio.gather(
             *(
                 engine.load_model(config)
-                for engine, config in engines
+                for engine, config in engines.values()
                 if not engine.is_loaded()
             )
         )
@@ -110,15 +143,215 @@ class FusionOrchestrator:
         does not block the others from releasing their memory.
         """
         tasks: list[asyncio.Task] = []
-        for engines in self._engines.values():
-            for engine, _ in engines:
+        for path_engines in self._engines.values():
+            for engine, _ in path_engines.values():
                 if engine.is_loaded():
                     tasks.append(asyncio.create_task(engine.unload_model()))
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     # ------------------------------------------------------------------
-    # Main entry point
+    # High-level public entry point
+    # ------------------------------------------------------------------
+
+    async def process(
+        self,
+        session_id: str,
+        features: LandmarkFrame | AudioFeatureChunk,
+        health: list[PipelineHealth],
+        modality_path: ModalityPath,
+        send_fn: Callable[[TranscriptSegment], Awaitable[None] | None],
+    ) -> None:
+        """Handle one incoming DTO: convert to numpy, run engines, emit segments.
+
+        This is the primary entry point for SessionHandler. It dispatches to
+        the correct internal handler based on ``modality_path`` and the DTO
+        type, then calls ``send_fn`` for every TranscriptSegment produced.
+
+        Path A (SPEECH):
+          - ``LandmarkFrame`` — caches face landmarks; no inference triggered.
+          - ``AudioFeatureChunk`` — runs ASR (+ LipReading in parallel if face
+            landmarks are cached); emits PARTIAL from ASR, FINAL when both
+            modalities succeed.
+
+        Path B (SIGN):
+          - ``LandmarkFrame`` — accumulates frames; when the window is full
+            runs TslRecognitionEngine (PARTIAL), then GlossToTextEngine (FINAL).
+            On GlossToText timeout the TSL gloss is promoted to FINAL with a
+            confidence penalty.
+
+        Args:
+            session_id: Active session identifier.
+            features: One inbound DTO from the WebSocket gateway.
+            health: Current pipeline health signals from the client.
+            modality_path: Which pipeline is active for this session.
+            send_fn: Coroutine or plain callable invoked once per outbound segment.
+        """
+        if modality_path == ModalityPath.SPEECH:
+            await self._process_speech(session_id, features, health, send_fn)
+        else:
+            await self._process_sign(session_id, features, health, send_fn)
+
+    # ------------------------------------------------------------------
+    # Internal pipeline handlers
+    # ------------------------------------------------------------------
+
+    async def _process_speech(
+        self,
+        session_id: str,
+        features: LandmarkFrame | AudioFeatureChunk,
+        health: list[PipelineHealth],
+        send_fn: Callable[[TranscriptSegment], Awaitable[None] | None],
+    ) -> None:
+        if isinstance(features, LandmarkFrame):
+            # Cache the face landmarks for the next audio chunk.
+            if features.face_landmarks is not None:
+                self._face_cache[session_id] = np.asarray(
+                    features.face_landmarks, dtype=np.float32
+                )
+            return
+
+        # AudioFeatureChunk — run ASR (+ LipReading in parallel if face cached).
+        audio_np = np.asarray(features.features, dtype=np.float32)
+        face_np = self._face_cache.get(session_id)
+
+        path_engines = self._engines.get(ModalityPath.SPEECH, {})
+        asr_entry = path_engines.get(ModalityType.ASR)
+        lip_entry = path_engines.get(ModalityType.LIP_READING)
+
+        async def _run_asr() -> ModalityResult | None:
+            if asr_entry is None:
+                return None
+            asr_engine, _ = asr_entry
+            try:
+                return await asr_engine.predict(audio_np)
+            except InferenceTimeoutError:
+                return None
+
+        async def _run_lip() -> ModalityResult | None:
+            if lip_entry is None or face_np is None:
+                return None
+            lip_engine, _ = lip_entry
+            try:
+                return await lip_engine.predict(face_np)
+            except InferenceTimeoutError:
+                return None
+
+        asr_result, lip_result = await asyncio.gather(_run_asr(), _run_lip())
+
+        if asr_result is None:
+            return  # ASR timed out or missing — nothing to emit.
+
+        results = [asr_result]
+        if lip_result is not None:
+            results.append(lip_result)
+
+        segments = await self.process_features(
+            session_id, results, health, ModalityPath.SPEECH,
+        )
+        for seg in segments:
+            await _maybe_await(send_fn(seg))
+
+    async def _process_sign(
+        self,
+        session_id: str,
+        features: LandmarkFrame | AudioFeatureChunk,
+        health: list[PipelineHealth],
+        send_fn: Callable[[TranscriptSegment], Awaitable[None] | None],
+    ) -> None:
+        if not isinstance(features, LandmarkFrame):
+            return  # SIGN path only accepts LandmarkFrame.
+
+        batch = self._accumulator.add(features)
+        if batch is None:
+            return  # Window not full yet.
+
+        path_engines = self._engines.get(ModalityPath.SIGN, {})
+        tsl_entry = path_engines.get(ModalityType.TSL_RECOGNITION)
+        gloss_entry = path_engines.get(ModalityType.GLOSS_TO_TEXT)
+
+        if tsl_entry is None:
+            return
+
+        tsl_engine, _ = tsl_entry
+
+        # Run TslRecognitionEngine → emit PARTIAL.
+        try:
+            tsl_result = await tsl_engine.predict(batch)
+        except InferenceTimeoutError:
+            return  # No PARTIAL to emit without TSL output.
+
+        tsl_segments = await self.process_features(
+            session_id, [tsl_result], health, ModalityPath.SIGN,
+        )
+        partial_id: str | None = None
+        for seg in tsl_segments:
+            if seg.status == SegmentStatus.PARTIAL:
+                partial_id = seg.segment_id
+            await _maybe_await(send_fn(seg))
+
+        if gloss_entry is None:
+            return
+
+        gloss_engine, _ = gloss_entry
+
+        # Run GlossToTextEngine → emit FINAL.
+        try:
+            gloss_result = await gloss_engine.predict(tsl_result.text)
+        except InferenceTimeoutError:
+            # Promote TSL gloss to FINAL with a confidence penalty.
+            final_segs = self._promote_gloss_to_final(
+                session_id, tsl_result, partial_id,
+            )
+            for seg in final_segs:
+                await _maybe_await(send_fn(seg))
+            return
+
+        final_segments = await self.process_features(
+            session_id, [tsl_result, gloss_result], health, ModalityPath.SIGN,
+        )
+        for seg in final_segments:
+            await _maybe_await(send_fn(seg))
+
+    def _promote_gloss_to_final(
+        self,
+        session_id: str,
+        tsl_result: ModalityResult,
+        partial_id: str | None,
+    ) -> list[TranscriptSegment]:
+        """Produce a FINAL segment from a TSL result when GlossToText timed out.
+
+        Uses the raw gloss text as the final display text and applies a
+        confidence penalty to signal reduced quality.
+
+        Args:
+            session_id: Active session identifier.
+            tsl_result: The TSL result whose gloss becomes the FINAL text.
+            partial_id: The segment_id of the PARTIAL already emitted, if any.
+
+        Returns:
+            A list containing one FINAL TranscriptSegment (or empty if the
+            penalised confidence would be suppressed).
+        """
+        penalised = max(0.0, tsl_result.confidence - _GLOSS_TIMEOUT_CONFIDENCE_PENALTY)
+        if penalised <= 0.0:
+            return []
+
+        return [TranscriptSegment(
+            segment_id=str(uuid.uuid4()),
+            session_id=session_id,
+            status=SegmentStatus.FINAL,
+            text=tsl_result.text,
+            source=ModalityType.TSL_RECOGNITION,
+            confidence=round(penalised, 4),
+            timestamp_ms=tsl_result.timestamp_ms,
+            duration_ms=tsl_result.duration_ms,
+            created_at_ms=int(time.time() * 1000),
+            replaces_segment_id=partial_id,
+        )]
+
+    # ------------------------------------------------------------------
+    # Internal fusion helper (kept public for existing test compatibility)
     # ------------------------------------------------------------------
 
     async def process_features(
@@ -128,7 +361,7 @@ class FusionOrchestrator:
         health: list[PipelineHealth],
         modality_path: ModalityPath,
     ) -> list[TranscriptSegment]:
-        """Route inference results to the registered policy.
+        """Route pre-computed inference results to the registered policy.
 
         If any pipeline in ``health`` signals degraded state and only one
         modality result is present, delegates to DegradedModeHandler instead.
@@ -197,3 +430,14 @@ class FusionOrchestrator:
     def _is_degraded(self, health: list[PipelineHealth]) -> bool:
         """Return True if any health signal indicates degraded state."""
         return any(self._degraded.should_fallback(h) for h in health)
+
+
+# ---------------------------------------------------------------------------
+# Module-level utility
+# ---------------------------------------------------------------------------
+
+
+async def _maybe_await(value: Awaitable | None) -> None:
+    """Await ``value`` if it is awaitable, otherwise discard it."""
+    if asyncio.isfuture(value) or asyncio.iscoroutine(value):
+        await value
