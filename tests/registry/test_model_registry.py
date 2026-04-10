@@ -44,7 +44,9 @@ class StubEngine(InferenceEngine):
         self._loaded = True
         self._model_id = config.model_id
 
-    async def predict(self, features: np.ndarray, timeout_ms: int = 2200) -> ModalityResult:
+    async def predict(
+        self, features: np.ndarray, timeout_ms: int = 2200
+    ) -> ModalityResult:
         return ModalityResult(
             modality_type=ModalityType.ASR,
             text="",
@@ -75,7 +77,9 @@ class AnotherStubEngine(InferenceEngine):
     async def load_model(self, config: ModelConfig) -> None:
         self.load_model_call_count += 1
 
-    async def predict(self, features: np.ndarray, timeout_ms: int = 2200) -> ModalityResult:
+    async def predict(
+        self, features: np.ndarray, timeout_ms: int = 2200
+    ) -> ModalityResult:
         return ModalityResult(
             modality_type=ModalityType.ASR,
             text="",
@@ -320,9 +324,26 @@ class TestIsLoadedAndListLoaded:
 class TestDependencyRules:
     def test_importing_registry_does_not_pull_inference_or_client(self):
         """Rule R2: sozia.registry must not import sozia.inference.* or sozia.client.*."""
+        import importlib
+
+        # Evict sozia.registry so the import below is a genuine cold load.
+        # Without this, the test only checks whatever is already in sys.modules
+        # (which includes sozia.inference.* after inference tests run first).
+        evicted = {
+            k: sys.modules.pop(k)
+            for k in list(sys.modules)
+            if k.startswith("sozia.registry")
+        }
+        before = set(sys.modules.keys())
+        try:
+            importlib.import_module("sozia.registry")
+            added = set(sys.modules.keys()) - before
+        finally:
+            sys.modules.update(evicted)
+
         forbidden_prefixes = ("sozia.inference", "sozia.client")
-        for mod_name in sys.modules:
+        for mod_name in added:
             for prefix in forbidden_prefixes:
                 assert not mod_name.startswith(prefix), (
-                    f"Forbidden module '{mod_name}' was imported via sozia.registry"
+                    f"Forbidden module '{mod_name}' was pulled in by sozia.registry"
                 )
