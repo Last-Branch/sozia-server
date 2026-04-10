@@ -375,7 +375,8 @@ class TestWarmUpCoolDown:
 
         await orch.warm_up(ModalityPath.SPEECH)
         await orch.warm_up(ModalityPath.SIGN)
-        assert asr.is_loaded() and tsl.is_loaded()
+        assert asr.is_loaded()
+        assert tsl.is_loaded()
 
         await orch.cool_down()
         assert not asr.is_loaded()

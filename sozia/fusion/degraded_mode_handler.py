@@ -101,9 +101,7 @@ class DegradedModeHandler:
         if not health.available:
             if health.pipeline == "audio":
                 return "Microphone unavailable — speech recognition paused."
-            if health.pipeline == "video":
-                return "Camera unavailable — visual recognition paused."
-            return f"{health.pipeline.capitalize()} pipeline unavailable."
+            return "Camera unavailable — visual recognition paused."
 
         if health.pipeline == "video" and health.face_detected is False:
             return "Camera obstructed — visual recognition paused."
