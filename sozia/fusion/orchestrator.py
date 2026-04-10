@@ -2,24 +2,30 @@
 
 Receives inference results, routes them to the correct FusionStrategy based
 on ModalityPath, and handles timeout fallback via DegradedModeHandler.
+Also drives per-session model warm-up and cool-down by iterating over the
+``InferenceEngine`` instances registered for each modality path.
 
-Rule R3: coordinates inference engines but never calls models directly.
+Rule R3: coordinates inference engines but never calls models directly —
+it only touches the ``InferenceEngine`` interface (``load_model``,
+``unload_model``), never the underlying ML library.
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from sozia.common.models import (
     ModalityPath,
     ModalityResult,
+    ModelConfig,
     PipelineHealth,
     TranscriptSegment,
 )
 from sozia.fusion.degraded_mode_handler import DegradedModeHandler
 
 if TYPE_CHECKING:
-    from sozia.common.interfaces import FusionStrategy
+    from sozia.common.interfaces import FusionStrategy, InferenceEngine
 
 
 class FusionOrchestrator:
@@ -29,9 +35,14 @@ class FusionOrchestrator:
 
         orchestrator = FusionOrchestrator()
         orchestrator.register_policy(ModalityPath.SPEECH, speech_policy)
-        orchestrator.register_policy(ModalityPath.SIGN, sign_policy)
+        orchestrator.register_engine(ModalityPath.SPEECH, asr_engine, asr_cfg)
+        orchestrator.register_engine(ModalityPath.SPEECH, lip_engine, lip_cfg)
 
-        segment = orchestrator.process_features(session_id, results, health, path)
+        await orchestrator.warm_up(ModalityPath.SPEECH)
+        segments = await orchestrator.process_features(
+            session_id, results, health, ModalityPath.SPEECH,
+        )
+        await orchestrator.cool_down()
     """
 
     def __init__(
@@ -39,7 +50,12 @@ class FusionOrchestrator:
         degraded_handler: DegradedModeHandler | None = None,
     ) -> None:
         self._policies: dict[ModalityPath, FusionStrategy] = {}
-        self._degraded: DegradedModeHandler = degraded_handler or DegradedModeHandler()
+        self._engines: dict[
+            ModalityPath, list[tuple[InferenceEngine, ModelConfig]],
+        ] = {}
+        self._degraded: DegradedModeHandler = (
+            degraded_handler or DegradedModeHandler()
+        )
 
     # ------------------------------------------------------------------
     # Registration
@@ -51,11 +67,61 @@ class FusionOrchestrator:
         """Wire a fusion policy for a modality path."""
         self._policies[path] = policy
 
+    def register_engine(
+        self,
+        path: ModalityPath,
+        engine: InferenceEngine,
+        config: ModelConfig,
+    ) -> None:
+        """Attach an inference engine to a modality path for warm-up.
+
+        The orchestrator records the (engine, config) pair but does not
+        load the model until ``warm_up(path)`` is called. Engines stay
+        attached across sessions; ``cool_down()`` unloads them.
+        """
+        self._engines.setdefault(path, []).append((engine, config))
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    async def warm_up(self, path: ModalityPath) -> None:
+        """Load every engine registered for ``path``.
+
+        Engines that are already loaded are skipped so ``warm_up`` is
+        idempotent per session. Load calls run concurrently to minimise
+        cold-start latency; errors from individual engines propagate so
+        the caller can decide whether to abort session setup.
+        """
+        engines = self._engines.get(path, [])
+        await asyncio.gather(
+            *(
+                engine.load_model(config)
+                for engine, config in engines
+                if not engine.is_loaded()
+            )
+        )
+
+    async def cool_down(self) -> None:
+        """Unload every registered engine across all paths.
+
+        Safe to call even if no engines were warmed. Unload calls run
+        concurrently and exceptions are suppressed so one failing engine
+        does not block the others from releasing their memory.
+        """
+        tasks: list[asyncio.Task] = []
+        for engines in self._engines.values():
+            for engine, _ in engines:
+                if engine.is_loaded():
+                    tasks.append(asyncio.create_task(engine.unload_model()))
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
     # ------------------------------------------------------------------
     # Main entry point
     # ------------------------------------------------------------------
 
-    def process_features(
+    async def process_features(
         self,
         session_id: str,
         results: list[ModalityResult],
@@ -94,7 +160,7 @@ class FusionOrchestrator:
         policy = self._policies[modality_path]
         return policy.fuse(results, health)
 
-    def handle_timeout(
+    async def handle_timeout(
         self,
         session_id: str,
         result: ModalityResult,

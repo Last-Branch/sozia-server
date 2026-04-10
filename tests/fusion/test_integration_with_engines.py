@@ -12,8 +12,6 @@ engines never populate.
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
 from sozia.common.interfaces import InferenceEngine
@@ -138,22 +136,22 @@ def _build_orchestrator() -> FusionOrchestrator:
 
 
 class TestSpeechPipelineIntegration:
-    def test_partial_then_final_replaces_partial(self):
+    async def test_partial_then_final_replaces_partial(self):
         """ASR alone → PARTIAL; lip arrives → FINAL with replaces_segment_id."""
-        asr = _StubEngine(_result(ModalityType.ASR, "merhaba", 0.85))
+        asr = _StubEngine(_result(ModalityType.ASR, "merhaba", 0.70))
         lip = _StubEngine(
-            _result(ModalityType.LIP_READING, "merhaba dünya", 0.70),
+            _result(ModalityType.LIP_READING, "merhaba dünya", 0.85),
         )
-        asyncio.run(asr.load_model(_config("whisper-small-tr")))
-        asyncio.run(lip.load_model(_config("lip-reading-v1")))
+        await asr.load_model(_config("whisper-small-tr"))
+        await lip.load_model(_config("lip-reading-v1"))
 
-        asr_out = asyncio.run(asr.predict(features=None))
-        lip_out = asyncio.run(lip.predict(features=None))
+        asr_out = await asr.predict(features=None)
+        lip_out = await lip.predict(features=None)
 
         orch = _build_orchestrator()
 
         # First pass: ASR only → PARTIAL.
-        partials = orch.process_features(
+        partials = await orch.process_features(
             _SESSION, [asr_out], [_audio_health()], ModalityPath.SPEECH,
         )
         assert len(partials) == 1
@@ -161,7 +159,7 @@ class TestSpeechPipelineIntegration:
         partial_id = partials[0].segment_id
 
         # Second pass: both modalities → FINAL replacing PARTIAL.
-        finals = orch.process_features(
+        finals = await orch.process_features(
             _SESSION,
             [asr_out, lip_out],
             [_audio_health()],
@@ -170,16 +168,16 @@ class TestSpeechPipelineIntegration:
         assert len(finals) == 1
         assert finals[0].status == SegmentStatus.FINAL
         assert finals[0].replaces_segment_id == partial_id
-        # Lip text takes precedence when both are present.
+        # Lip has higher confidence → lip text wins.
         assert finals[0].text == "merhaba dünya"
 
-    def test_low_confidence_asr_suppressed(self):
+    async def test_low_confidence_asr_suppressed(self):
         asr = _StubEngine(_result(ModalityType.ASR, "noise", 0.10))
-        asyncio.run(asr.load_model(_config("whisper-small-tr")))
-        asr_out = asyncio.run(asr.predict(features=None))
+        await asr.load_model(_config("whisper-small-tr"))
+        asr_out = await asr.predict(features=None)
 
         orch = _build_orchestrator()
-        segments = orch.process_features(
+        segments = await orch.process_features(
             _SESSION, [asr_out], [_audio_health()], ModalityPath.SPEECH,
         )
         assert segments == []
@@ -191,7 +189,7 @@ class TestSpeechPipelineIntegration:
 
 
 class TestSignPipelineIntegration:
-    def test_gloss_replaces_tsl_partial(self):
+    async def test_gloss_replaces_tsl_partial(self):
         tsl = _StubEngine(
             _result(ModalityType.TSL_RECOGNITION, "MERHABA DUNYA", 0.80),
         )
@@ -203,16 +201,16 @@ class TestSignPipelineIntegration:
                 inference_latency_ms=1500,
             ),
         )
-        asyncio.run(tsl.load_model(_config("tsl-gru-v1")))
-        asyncio.run(gloss.load_model(_config("gemma2-9b-lora")))
+        await tsl.load_model(_config("tsl-gru-v1"))
+        await gloss.load_model(_config("gemma2-9b-lora"))
 
-        tsl_out = asyncio.run(tsl.predict(features=None))
-        gloss_out = asyncio.run(gloss.predict(features=None))
+        tsl_out = await tsl.predict(features=None)
+        gloss_out = await gloss.predict(features=None)
 
         orch = _build_orchestrator()
 
         # TSL alone → PARTIAL.
-        partials = orch.process_features(
+        partials = await orch.process_features(
             _SESSION, [tsl_out], [_video_health()], ModalityPath.SIGN,
         )
         assert len(partials) == 1
@@ -221,7 +219,7 @@ class TestSignPipelineIntegration:
         partial_id = partials[0].segment_id
 
         # GlossToText arrives → FINAL replaces PARTIAL, text fully replaced.
-        finals = orch.process_features(
+        finals = await orch.process_features(
             _SESSION,
             [tsl_out, gloss_out],
             [_video_health()],
@@ -239,15 +237,15 @@ class TestSignPipelineIntegration:
 
 
 class TestDegradedIntegration:
-    def test_no_face_detected_falls_back_to_audio(self):
+    async def test_no_face_detected_falls_back_to_audio(self):
         """Video pipeline reports no face → fusion must still emit audio."""
         asr = _StubEngine(_result(ModalityType.ASR, "merhaba", 0.80))
-        asyncio.run(asr.load_model(_config("whisper-small-tr")))
-        asr_out = asyncio.run(asr.predict(features=None))
+        await asr.load_model(_config("whisper-small-tr"))
+        asr_out = await asr.predict(features=None)
 
         orch = _build_orchestrator()
         # Audio healthy, video degraded (no face), only ASR result.
-        segments = orch.process_features(
+        segments = await orch.process_features(
             _SESSION,
             [asr_out],
             [_audio_health(), _video_health(face_detected=False)],
@@ -259,13 +257,13 @@ class TestDegradedIntegration:
         # Degraded handler applies confidence penalty (0.80 - 0.15 = 0.65).
         assert abs(seg.confidence - 0.65) < 0.001
 
-    def test_low_snr_penalises_asr(self):
+    async def test_low_snr_penalises_asr(self):
         asr = _StubEngine(_result(ModalityType.ASR, "fısıltı", 0.70))
-        asyncio.run(asr.load_model(_config("whisper-small-tr")))
-        asr_out = asyncio.run(asr.predict(features=None))
+        await asr.load_model(_config("whisper-small-tr"))
+        asr_out = await asr.predict(features=None)
 
         orch = _build_orchestrator()
-        segments = orch.process_features(
+        segments = await orch.process_features(
             _SESSION,
             [asr_out],
             [_audio_health(snr=2.0)],
@@ -282,35 +280,107 @@ class TestDegradedIntegration:
 
 
 class TestEngineLifecycleContract:
-    def test_predict_before_load_raises(self):
+    async def test_predict_before_load_raises(self):
         from sozia.common.interfaces import ModelNotLoadedError
 
         engine = _StubEngine(_result(ModalityType.ASR, "x"))
         with pytest.raises(ModelNotLoadedError):
-            asyncio.run(engine.predict(features=None))
+            await engine.predict(features=None)
 
-    def test_unload_resets_state(self):
+    async def test_unload_resets_state(self):
         engine = _StubEngine(_result(ModalityType.ASR, "x"))
-        asyncio.run(engine.load_model(_config("m")))
+        await engine.load_model(_config("m"))
         assert engine.is_loaded() is True
         assert engine.get_model_id() == "m"
 
-        asyncio.run(engine.unload_model())
+        await engine.unload_model()
         assert engine.is_loaded() is False
         assert engine.get_model_id() == ""
 
-    def test_custom_policy_threshold_is_honoured(self):
+    async def test_custom_policy_threshold_is_honoured(self):
         """Refactored policies expose constants — verify override flows end-to-end."""
         strict = SpeechFusionPolicy(confidence_threshold=0.90)
         orch = FusionOrchestrator()
         orch.register_policy(ModalityPath.SPEECH, strict)
 
         engine = _StubEngine(_result(ModalityType.ASR, "merhaba", 0.85))
-        asyncio.run(engine.load_model(_config("whisper-small-tr")))
-        out = asyncio.run(engine.predict(features=None))
+        await engine.load_model(_config("whisper-small-tr"))
+        out = await engine.predict(features=None)
 
-        segments = orch.process_features(
+        segments = await orch.process_features(
             _SESSION, [out], [_audio_health()], ModalityPath.SPEECH,
         )
         # 0.85 < 0.90 → suppressed.
         assert segments == []
+
+
+# ---------------------------------------------------------------------------
+# warm_up / cool_down lifecycle
+# ---------------------------------------------------------------------------
+
+
+class TestWarmUpCoolDown:
+    async def test_warm_up_loads_registered_engines(self):
+        asr = _StubEngine(_result(ModalityType.ASR, "x"))
+        lip = _StubEngine(_result(ModalityType.LIP_READING, "x"))
+        assert not asr.is_loaded()
+        assert not lip.is_loaded()
+
+        orch = _build_orchestrator()
+        orch.register_engine(
+            ModalityPath.SPEECH, asr, _config("whisper-small-tr"),
+        )
+        orch.register_engine(
+            ModalityPath.SPEECH, lip, _config("lip-reading-v1"),
+        )
+
+        await orch.warm_up(ModalityPath.SPEECH)
+        assert asr.is_loaded()
+        assert lip.is_loaded()
+
+    async def test_warm_up_is_idempotent(self):
+        engine = _StubEngine(_result(ModalityType.ASR, "x"))
+        orch = _build_orchestrator()
+        orch.register_engine(
+            ModalityPath.SPEECH, engine, _config("whisper-small-tr"),
+        )
+
+        await orch.warm_up(ModalityPath.SPEECH)
+        await orch.warm_up(ModalityPath.SPEECH)  # second call is a no-op
+        assert engine.is_loaded()
+
+    async def test_warm_up_only_touches_given_path(self):
+        asr = _StubEngine(_result(ModalityType.ASR, "x"))
+        tsl = _StubEngine(_result(ModalityType.TSL_RECOGNITION, "x"))
+
+        orch = _build_orchestrator()
+        orch.register_engine(ModalityPath.SPEECH, asr, _config("whisper"))
+        orch.register_engine(ModalityPath.SIGN, tsl, _config("tsl-gru"))
+
+        await orch.warm_up(ModalityPath.SPEECH)
+        assert asr.is_loaded()
+        assert not tsl.is_loaded()
+
+    async def test_warm_up_with_no_engines_is_noop(self):
+        orch = _build_orchestrator()
+        await orch.warm_up(ModalityPath.SPEECH)  # must not raise
+
+    async def test_cool_down_unloads_all_paths(self):
+        asr = _StubEngine(_result(ModalityType.ASR, "x"))
+        tsl = _StubEngine(_result(ModalityType.TSL_RECOGNITION, "x"))
+
+        orch = _build_orchestrator()
+        orch.register_engine(ModalityPath.SPEECH, asr, _config("whisper"))
+        orch.register_engine(ModalityPath.SIGN, tsl, _config("tsl-gru"))
+
+        await orch.warm_up(ModalityPath.SPEECH)
+        await orch.warm_up(ModalityPath.SIGN)
+        assert asr.is_loaded() and tsl.is_loaded()
+
+        await orch.cool_down()
+        assert not asr.is_loaded()
+        assert not tsl.is_loaded()
+
+    async def test_cool_down_without_warm_up_is_noop(self):
+        orch = _build_orchestrator()
+        await orch.cool_down()  # must not raise

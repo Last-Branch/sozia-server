@@ -105,36 +105,36 @@ def _make_orchestrator() -> FusionOrchestrator:
 
 
 class TestRegistration:
-    def test_raises_on_unregistered_path(self):
+    async def test_raises_on_unregistered_path(self):
         orch = FusionOrchestrator()
         with pytest.raises(ValueError, match="SPEECH"):
-            orch.process_features(
+            await orch.process_features(
                 _SESSION, [_asr()], [_audio_health()], ModalityPath.SPEECH,
             )
 
-    def test_register_policy_succeeds(self):
+    async def test_register_policy_succeeds(self):
         orch = FusionOrchestrator()
         orch.register_policy(ModalityPath.SPEECH, SpeechFusionPolicy())
         # Should not raise anymore.
-        segments = orch.process_features(
+        segments = await orch.process_features(
             _SESSION, [_asr()], [_audio_health()], ModalityPath.SPEECH,
         )
         assert len(segments) == 1
 
 
 class TestSpeechPathRouting:
-    def test_asr_only_produces_partial(self):
+    async def test_asr_only_produces_partial(self):
         orch = _make_orchestrator()
-        segments = orch.process_features(
+        segments = await orch.process_features(
             _SESSION, [_asr()], [_audio_health()], ModalityPath.SPEECH,
         )
         assert len(segments) == 1
         assert segments[0].status == SegmentStatus.PARTIAL
         assert segments[0].source == ModalityType.ASR
 
-    def test_asr_plus_lip_produces_final(self):
+    async def test_asr_plus_lip_produces_final(self):
         orch = _make_orchestrator()
-        segments = orch.process_features(
+        segments = await orch.process_features(
             _SESSION, [_asr(), _lip()], [_audio_health()], ModalityPath.SPEECH,
         )
         assert len(segments) == 1
@@ -142,18 +142,18 @@ class TestSpeechPathRouting:
 
 
 class TestSignPathRouting:
-    def test_tsl_only_produces_partial(self):
+    async def test_tsl_only_produces_partial(self):
         orch = _make_orchestrator()
-        segments = orch.process_features(
+        segments = await orch.process_features(
             _SESSION, [_tsl()], [_video_health()], ModalityPath.SIGN,
         )
         assert len(segments) == 1
         assert segments[0].status == SegmentStatus.PARTIAL
         assert segments[0].text == "MERHABA"
 
-    def test_gloss_produces_final(self):
+    async def test_gloss_produces_final(self):
         orch = _make_orchestrator()
-        segments = orch.process_features(
+        segments = await orch.process_features(
             _SESSION, [_tsl(), _gloss()], [_video_health()], ModalityPath.SIGN,
         )
         assert len(segments) == 1
@@ -162,9 +162,9 @@ class TestSignPathRouting:
 
 
 class TestDegradedMode:
-    def test_degraded_audio_single_result_uses_handler(self):
+    async def test_degraded_audio_single_result_uses_handler(self):
         orch = _make_orchestrator()
-        segments = orch.process_features(
+        segments = await orch.process_features(
             _SESSION,
             [_asr(confidence=0.80)],
             [_audio_health(available=False)],
@@ -176,9 +176,9 @@ class TestDegradedMode:
         # Confidence should be penalised (0.80 - 0.15 = 0.65)
         assert abs(seg.confidence - 0.65) < 0.001
 
-    def test_degraded_video_single_result_uses_handler(self):
+    async def test_degraded_video_single_result_uses_handler(self):
         orch = _make_orchestrator()
-        segments = orch.process_features(
+        segments = await orch.process_features(
             _SESSION,
             [_tsl(confidence=0.80)],
             [_video_health(face_detected=False)],
@@ -187,10 +187,10 @@ class TestDegradedMode:
         assert len(segments) == 1
         assert abs(segments[0].confidence - 0.65) < 0.001
 
-    def test_degraded_but_two_results_uses_normal_policy(self):
+    async def test_degraded_but_two_results_uses_normal_policy(self):
         """With two results, degraded handler is skipped even if health is bad."""
         orch = _make_orchestrator()
-        segments = orch.process_features(
+        segments = await orch.process_features(
             _SESSION,
             [_asr(), _lip()],
             [_audio_health(available=False)],
@@ -199,9 +199,9 @@ class TestDegradedMode:
         assert len(segments) == 1
         assert segments[0].status == SegmentStatus.FINAL
 
-    def test_degraded_low_confidence_returns_empty(self):
+    async def test_degraded_low_confidence_returns_empty(self):
         orch = _make_orchestrator()
-        segments = orch.process_features(
+        segments = await orch.process_features(
             _SESSION,
             [_asr(confidence=0.10)],
             [_audio_health(available=False)],
@@ -209,10 +209,10 @@ class TestDegradedMode:
         )
         assert segments == []
 
-    def test_healthy_single_result_uses_normal_policy(self):
+    async def test_healthy_single_result_uses_normal_policy(self):
         """Healthy pipeline with one result → normal policy, not degraded."""
         orch = _make_orchestrator()
-        segments = orch.process_features(
+        segments = await orch.process_features(
             _SESSION, [_asr()], [_audio_health()], ModalityPath.SPEECH,
         )
         assert len(segments) == 1
@@ -221,17 +221,17 @@ class TestDegradedMode:
 
 
 class TestHandleTimeout:
-    def test_timeout_emits_partial_from_primary(self):
+    async def test_timeout_emits_partial_from_primary(self):
         orch = _make_orchestrator()
-        segments = orch.handle_timeout(
+        segments = await orch.handle_timeout(
             _SESSION, _asr(), [_audio_health()], ModalityPath.SPEECH,
         )
         assert len(segments) == 1
         assert segments[0].status == SegmentStatus.PARTIAL
 
-    def test_timeout_raises_on_unregistered_path(self):
+    async def test_timeout_raises_on_unregistered_path(self):
         orch = FusionOrchestrator()
         with pytest.raises(ValueError, match="SIGN"):
-            orch.handle_timeout(
+            await orch.handle_timeout(
                 _SESSION, _tsl(), [_video_health()], ModalityPath.SIGN,
             )
