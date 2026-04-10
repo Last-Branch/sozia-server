@@ -328,10 +328,10 @@ class TestWarmUpCoolDown:
 
         orch = _build_orchestrator()
         orch.register_engine(
-            ModalityPath.SPEECH, asr, _config("whisper-small-tr"),
+            ModalityPath.SPEECH, ModalityType.ASR, asr, _config("whisper-small-tr"),
         )
         orch.register_engine(
-            ModalityPath.SPEECH, lip, _config("lip-reading-v1"),
+            ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _config("lip-reading-v1"),
         )
 
         await orch.warm_up(ModalityPath.SPEECH)
@@ -342,7 +342,7 @@ class TestWarmUpCoolDown:
         engine = _StubEngine(_result(ModalityType.ASR, "x"))
         orch = _build_orchestrator()
         orch.register_engine(
-            ModalityPath.SPEECH, engine, _config("whisper-small-tr"),
+            ModalityPath.SPEECH, ModalityType.ASR, engine, _config("whisper-small-tr"),
         )
 
         await orch.warm_up(ModalityPath.SPEECH)
@@ -354,8 +354,8 @@ class TestWarmUpCoolDown:
         tsl = _StubEngine(_result(ModalityType.TSL_RECOGNITION, "x"))
 
         orch = _build_orchestrator()
-        orch.register_engine(ModalityPath.SPEECH, asr, _config("whisper"))
-        orch.register_engine(ModalityPath.SIGN, tsl, _config("tsl-gru"))
+        orch.register_engine(ModalityPath.SPEECH, ModalityType.ASR, asr, _config("whisper"))
+        orch.register_engine(ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _config("tsl-gru"))
 
         await orch.warm_up(ModalityPath.SPEECH)
         assert asr.is_loaded()
@@ -370,8 +370,8 @@ class TestWarmUpCoolDown:
         tsl = _StubEngine(_result(ModalityType.TSL_RECOGNITION, "x"))
 
         orch = _build_orchestrator()
-        orch.register_engine(ModalityPath.SPEECH, asr, _config("whisper"))
-        orch.register_engine(ModalityPath.SIGN, tsl, _config("tsl-gru"))
+        orch.register_engine(ModalityPath.SPEECH, ModalityType.ASR, asr, _config("whisper"))
+        orch.register_engine(ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _config("tsl-gru"))
 
         await orch.warm_up(ModalityPath.SPEECH)
         await orch.warm_up(ModalityPath.SIGN)
