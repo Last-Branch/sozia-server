@@ -23,11 +23,11 @@ from sozia.common.models import (
     TranscriptSegment,
 )
 
-_CONFIDENCE_THRESHOLD = 0.30
+_DEFAULT_CONFIDENCE_THRESHOLD = 0.30
 
-# Weights for the weighted-average confidence merge.
-_ASR_WEIGHT = 0.65
-_LIP_WEIGHT = 0.35
+# Default weights for the weighted-average confidence merge.
+_DEFAULT_ASR_WEIGHT = 0.65
+_DEFAULT_LIP_WEIGHT = 0.35
 
 
 class SpeechFusionPolicy(FusionStrategy):
@@ -35,9 +35,21 @@ class SpeechFusionPolicy(FusionStrategy):
 
     Maintains a mapping of session_id → last PARTIAL segment_id so that
     FINAL segments can reference the PARTIAL they replace.
+
+    Weights and threshold default to tuned production values but can be
+    overridden for experimentation or testing.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        asr_weight: float = _DEFAULT_ASR_WEIGHT,
+        lip_weight: float = _DEFAULT_LIP_WEIGHT,
+        confidence_threshold: float = _DEFAULT_CONFIDENCE_THRESHOLD,
+    ) -> None:
+        self._asr_weight = asr_weight
+        self._lip_weight = lip_weight
+        self._confidence_threshold = confidence_threshold
         self._partial_ids: dict[str, str] = {}
 
     # ------------------------------------------------------------------
@@ -67,7 +79,8 @@ class SpeechFusionPolicy(FusionStrategy):
             # Both modalities → weighted merge → FINAL replacing the PARTIAL.
             merged_text = lip.text if lip.text else asr.text
             merged_confidence = (
-                _ASR_WEIGHT * asr.confidence + _LIP_WEIGHT * lip.confidence
+                self._asr_weight * asr.confidence
+                + self._lip_weight * lip.confidence
             )
             replaces = self._partial_ids.pop(session_id, None)
 
@@ -100,10 +113,10 @@ class SpeechFusionPolicy(FusionStrategy):
         )]
 
     def should_suppress(self, result: ModalityResult) -> bool:
-        return result.confidence < _CONFIDENCE_THRESHOLD
+        return result.confidence < self._confidence_threshold
 
     def get_confidence_threshold(self) -> float:
-        return _CONFIDENCE_THRESHOLD
+        return self._confidence_threshold
 
     # ------------------------------------------------------------------
     # Helpers

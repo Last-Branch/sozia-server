@@ -25,13 +25,18 @@ from sozia.common.models import (
     TranscriptSegment,
 )
 
-_CONFIDENCE_THRESHOLD = 0.30
+_DEFAULT_CONFIDENCE_THRESHOLD = 0.30
 
 
 class SignFusionPolicy(FusionStrategy):
     """FusionStrategy for the TSL Recognition + GlossToText pipeline."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        confidence_threshold: float = _DEFAULT_CONFIDENCE_THRESHOLD,
+    ) -> None:
+        self._confidence_threshold = confidence_threshold
         self._partial_ids: dict[str, str] = {}
 
     # ------------------------------------------------------------------
@@ -94,10 +99,10 @@ class SignFusionPolicy(FusionStrategy):
         return []
 
     def should_suppress(self, result: ModalityResult) -> bool:
-        return result.confidence < _CONFIDENCE_THRESHOLD
+        return result.confidence < self._confidence_threshold
 
     def get_confidence_threshold(self) -> float:
-        return _CONFIDENCE_THRESHOLD
+        return self._confidence_threshold
 
 
 # ---------------------------------------------------------------------------

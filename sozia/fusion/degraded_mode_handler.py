@@ -18,15 +18,24 @@ from sozia.common.models import (
     TranscriptSegment,
 )
 
-# Confidence penalty applied to degraded (single-modality) output.
-_DEGRADED_CONFIDENCE_PENALTY = 0.15
+# Default confidence penalty applied to degraded (single-modality) output.
+_DEFAULT_CONFIDENCE_PENALTY = 0.15
 
-# Minimum SNR (dB) for the audio pipeline to be considered usable.
-_MIN_AUDIO_SNR = 5.0
+# Default minimum SNR (dB) for the audio pipeline to be considered usable.
+_DEFAULT_MIN_AUDIO_SNR = 5.0
 
 
 class DegradedModeHandler:
     """Decides when to enter degraded mode and produces fallback segments."""
+
+    def __init__(
+        self,
+        *,
+        confidence_penalty: float = _DEFAULT_CONFIDENCE_PENALTY,
+        min_audio_snr: float = _DEFAULT_MIN_AUDIO_SNR,
+    ) -> None:
+        self._confidence_penalty = confidence_penalty
+        self._min_audio_snr = min_audio_snr
 
     def should_fallback(self, health: PipelineHealth) -> bool:
         """Return True if the pipeline health indicates degraded state.
@@ -45,7 +54,7 @@ class DegradedModeHandler:
         if (
             health.pipeline == "audio"
             and health.snr is not None
-            and health.snr < _MIN_AUDIO_SNR
+            and health.snr < self._min_audio_snr
         ):
             return True
 
@@ -68,7 +77,7 @@ class DegradedModeHandler:
         Returns:
             A PARTIAL TranscriptSegment with reduced confidence, or None.
         """
-        penalised = result.confidence - _DEGRADED_CONFIDENCE_PENALTY
+        penalised = result.confidence - self._confidence_penalty
         if penalised <= 0.0:
             return None
 
