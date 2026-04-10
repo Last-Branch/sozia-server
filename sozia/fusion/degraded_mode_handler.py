@@ -12,7 +12,6 @@ import uuid
 
 from sozia.common.models import (
     ModalityResult,
-    ModalityType,
     PipelineHealth,
     SegmentStatus,
     TranscriptSegment,
@@ -51,14 +50,11 @@ class DegradedModeHandler:
         if health.pipeline == "video" and health.face_detected is False:
             return True
 
-        if (
+        return (
             health.pipeline == "audio"
             and health.snr is not None
             and health.snr < self._min_audio_snr
-        ):
-            return True
-
-        return False
+        )
 
     def handle_degraded_input(
         self,

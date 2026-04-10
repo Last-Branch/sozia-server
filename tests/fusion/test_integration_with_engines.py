@@ -30,7 +30,6 @@ from sozia.fusion.orchestrator import FusionOrchestrator
 from sozia.fusion.sign_fusion_policy import SignFusionPolicy
 from sozia.fusion.speech_fusion_policy import SpeechFusionPolicy
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

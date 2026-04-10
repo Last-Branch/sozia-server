@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from sozia.common.models import (
     ModalityResult,
     ModalityType,
@@ -11,7 +9,6 @@ from sozia.common.models import (
     SegmentStatus,
 )
 from sozia.fusion.sign_fusion_policy import SignFusionPolicy
-
 
 # ---------------------------------------------------------------------------
 # Helpers

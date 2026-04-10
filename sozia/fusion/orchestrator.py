@@ -8,16 +8,12 @@ Rule R3: coordinates inference engines but never calls models directly.
 
 from __future__ import annotations
 
-import time
-import uuid
 from typing import TYPE_CHECKING
 
 from sozia.common.models import (
     ModalityPath,
     ModalityResult,
-    ModalityType,
     PipelineHealth,
-    SegmentStatus,
     TranscriptSegment,
 )
 from sozia.fusion.degraded_mode_handler import DegradedModeHandler
