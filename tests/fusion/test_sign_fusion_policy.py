@@ -172,3 +172,16 @@ class TestFuseSuppressedModality:
         assert len(segments) == 1
         assert segments[0].status == SegmentStatus.FINAL
         assert segments[0].source == ModalityType.GLOSS_TO_TEXT
+
+    def test_unrelated_modality_returns_empty(self):
+        """Sign policy must ignore non-sign modalities (ASR/LipReading)."""
+        policy = SignFusionPolicy()
+        asr_like = ModalityResult(
+            modality_type=ModalityType.ASR,
+            text="merhaba",
+            confidence=0.80,
+            timestamp_ms=1000,
+            duration_ms=500,
+            inference_latency_ms=200,
+        )
+        assert policy.fuse([asr_like], _health()) == []
