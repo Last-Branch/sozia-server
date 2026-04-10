@@ -104,7 +104,7 @@ class SpeechFusionPolicy(FusionStrategy):
 
         # Single modality → PARTIAL.
         single = asr or lip
-        seg_id = uuid.uuid4().hex
+        seg_id = str(uuid.uuid4())
         self._partial_ids[session_id] = seg_id
 
         return [self._make_segment(
@@ -143,7 +143,7 @@ class SpeechFusionPolicy(FusionStrategy):
         segment_id: str | None = None,
     ) -> TranscriptSegment:
         return TranscriptSegment(
-            segment_id=segment_id or uuid.uuid4().hex,
+            segment_id=segment_id or str(uuid.uuid4()),
             session_id=session_id,
             status=status,
             text=text,

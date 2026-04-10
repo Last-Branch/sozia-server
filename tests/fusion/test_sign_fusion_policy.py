@@ -185,3 +185,17 @@ class TestFuseSuppressedModality:
             inference_latency_ms=200,
         )
         assert policy.fuse([asr_like], _health()) == []
+
+
+class TestSegmentIdFormat:
+    def test_segment_id_is_dashed_uuid_v4(self):
+        """segment_id must be a canonical UUID v4 string (with dashes)."""
+        import uuid as _uuid
+
+        policy = SignFusionPolicy()
+        segments = policy.fuse([_tsl()], _health())
+        assert len(segments) == 1
+
+        seg_id = segments[0].segment_id
+        assert "-" in seg_id
+        assert _uuid.UUID(seg_id).version == 4

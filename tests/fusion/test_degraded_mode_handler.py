@@ -238,3 +238,14 @@ class TestAdvisoryMessage:
         )
         assert msg is not None
         assert "camera unavailable" in msg.lower()
+
+
+class TestSegmentIdFormat:
+    def test_degraded_segment_id_is_dashed_uuid_v4(self):
+        import uuid as _uuid
+
+        handler = DegradedModeHandler()
+        seg = handler.handle_degraded_input(_SESSION, _result())
+        assert seg is not None
+        assert "-" in seg.segment_id
+        assert _uuid.UUID(seg.segment_id).version == 4

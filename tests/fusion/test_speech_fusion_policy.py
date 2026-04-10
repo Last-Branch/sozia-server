@@ -219,3 +219,19 @@ class TestFuseSuppressedModality:
         assert len(segments) == 1
         assert segments[0].status == SegmentStatus.PARTIAL
         assert segments[0].source == ModalityType.LIP_READING
+
+
+class TestSegmentIdFormat:
+    def test_segment_id_is_dashed_uuid_v4(self):
+        """segment_id must be a canonical UUID v4 string (with dashes)."""
+        import uuid as _uuid
+
+        policy = SpeechFusionPolicy()
+        segments = policy.fuse([_asr()], _health())
+        assert len(segments) == 1
+
+        seg_id = segments[0].segment_id
+        assert "-" in seg_id, "segment_id must keep UUID dashes"
+        # Parsing as UUID confirms canonical format.
+        parsed = _uuid.UUID(seg_id)
+        assert parsed.version == 4
