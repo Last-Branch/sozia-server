@@ -9,6 +9,7 @@ import pytest
 
 from sozia.common.models import (
     AudioFeatureChunk,
+    ErrorMessage,
     LandmarkFrame,
     ModalityPath,
     ModalityResult,
@@ -17,6 +18,7 @@ from sozia.common.models import (
     PipelineHealth,
     SegmentStatus,
     SessionState,
+    SessionStatusMessage,
     TranscriptSegment,
 )
 
@@ -481,3 +483,123 @@ class TestTranscriptSegment:
     def test_empty_text_allowed(self):
         s = self._make(text="")
         assert s.text == ""
+
+
+# ===========================================================================
+# SessionStatusMessage
+# ===========================================================================
+
+
+class TestSessionStatusMessage:
+    def _make(self, **kwargs):
+        defaults = dict(
+            session_id="550e8400-e29b-41d4-a716-446655440000",
+            state=SessionState.INITIALIZING,
+            message="Loading speech models...",
+        )
+        defaults.update(kwargs)
+        return SessionStatusMessage(**defaults)
+
+    def test_happy_path(self):
+        msg = self._make()
+        assert msg.session_id == "550e8400-e29b-41d4-a716-446655440000"
+        assert msg.state == SessionState.INITIALIZING
+        assert msg.message == "Loading speech models..."
+
+    def test_all_session_states_accepted(self):
+        for state in SessionState:
+            msg = self._make(state=state)
+            assert msg.state == state
+
+    def test_empty_message_allowed(self):
+        msg = self._make(message="")
+        assert msg.message == ""
+
+    def test_frozen(self):
+        msg = self._make()
+        with pytest.raises(Exception):
+            msg.state = SessionState.RUNNING  # type: ignore[misc]
+
+    def test_empty_session_id_raises(self):
+        with pytest.raises(ValueError):
+            self._make(session_id="")
+
+    def test_running_state(self):
+        msg = self._make(state=SessionState.RUNNING, message="Session active.")
+        assert msg.state == SessionState.RUNNING
+
+    def test_degraded_state(self):
+        msg = self._make(
+            state=SessionState.DEGRADED,
+            message="Camera obstructed — visual recognition paused.",
+        )
+        assert msg.state == SessionState.DEGRADED
+
+    def test_error_state(self):
+        msg = self._make(state=SessionState.ERROR, message="Inference engine failed.")
+        assert msg.state == SessionState.ERROR
+
+
+# ===========================================================================
+# ErrorMessage
+# ===========================================================================
+
+
+class TestErrorMessage:
+    def _make(self, **kwargs):
+        defaults = dict(
+            session_id="550e8400-e29b-41d4-a716-446655440000",
+            code=4001,
+            message="Authentication failed.",
+        )
+        defaults.update(kwargs)
+        return ErrorMessage(**defaults)
+
+    def test_happy_path(self):
+        err = self._make()
+        assert err.code == 4001
+        assert err.message == "Authentication failed."
+
+    def test_all_valid_codes_accepted(self):
+        for code in (4001, 4002, 4003, 4004):
+            err = self._make(code=code)
+            assert err.code == code
+
+    def test_frozen(self):
+        err = self._make()
+        with pytest.raises(Exception):
+            err.code = 4002  # type: ignore[misc]
+
+    def test_invalid_code_raises(self):
+        with pytest.raises(ValueError):
+            self._make(code=4000)
+
+    def test_code_above_range_raises(self):
+        with pytest.raises(ValueError):
+            self._make(code=4005)
+
+    def test_standard_ws_code_raises(self):
+        with pytest.raises(ValueError):
+            self._make(code=1000)
+
+    def test_empty_message_raises(self):
+        with pytest.raises(ValueError):
+            self._make(message="")
+
+    def test_empty_session_id_allowed(self):
+        # session_id may be empty when the connection failed before
+        # a session_id was established (e.g. auth failure on first connect)
+        err = self._make(session_id="", code=4001)
+        assert err.session_id == ""
+
+    def test_code_4002_bad_init(self):
+        err = self._make(code=4002, message="Missing modality_path in session_init.")
+        assert err.code == 4002
+
+    def test_code_4003_duplicate_session(self):
+        err = self._make(code=4003, message="Session ID already active.")
+        assert err.code == 4003
+
+    def test_code_4004_warmup_failed(self):
+        err = self._make(code=4004, message="Model warm-up failed.")
+        assert err.code == 4004
