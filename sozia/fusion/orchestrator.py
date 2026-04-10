@@ -37,9 +37,11 @@ from sozia.fusion.frame_accumulator import FrameAccumulator
 if TYPE_CHECKING:
     from sozia.common.interfaces import FusionStrategy, InferenceEngine
 
-# Confidence penalty applied when GlossToText times out and we promote
-# the raw TSL gloss to a FINAL segment.
-_GLOSS_TIMEOUT_CONFIDENCE_PENALTY = 0.15
+# Additive confidence deduction applied when GlossToText times out and we
+# promote the raw TSL gloss to a FINAL segment.
+# Note: this is a subtraction (confidence -= N), not a multiplicative factor
+# like DegradedModeHandler's degraded_penalty_factor.
+_GLOSS_TIMEOUT_CONFIDENCE_DEDUCTION = 0.15
 
 
 class FusionOrchestrator:
@@ -73,9 +75,7 @@ class FusionOrchestrator:
         self._engines: dict[
             ModalityPath, dict[ModalityType, tuple[InferenceEngine, ModelConfig]]
         ] = {}
-        self._degraded: DegradedModeHandler = (
-            degraded_handler or DegradedModeHandler()
-        )
+        self._degraded: DegradedModeHandler = degraded_handler or DegradedModeHandler()
         self._accumulator = FrameAccumulator(window_size=window_size)
         # Per-session face landmark cache (SPEECH path — fed to LipReadingEngine).
         self._face_cache: dict[str, np.ndarray] = {}
@@ -85,7 +85,9 @@ class FusionOrchestrator:
     # ------------------------------------------------------------------
 
     def register_policy(
-        self, path: ModalityPath, policy: FusionStrategy,
+        self,
+        path: ModalityPath,
+        policy: FusionStrategy,
     ) -> None:
         """Wire a fusion policy for a modality path."""
         self._policies[path] = policy
@@ -113,6 +115,24 @@ class FusionOrchestrator:
             config: ModelConfig passed to ``engine.load_model()`` during warm-up.
         """
         self._engines.setdefault(path, {})[modality_type] = (engine, config)
+
+    def reset_session(self, session_id: str) -> None:
+        """Discard all per-session state for ``session_id``.
+
+        Clears the face landmark cache and any buffered landmark frames in the
+        accumulator. Safe to call even if no data has been accumulated yet.
+
+        In the current MVP each FusionOrchestrator instance serves a single
+        session, so ``cool_down()`` followed by object disposal is the normal
+        teardown path. ``reset_session`` exists for callers that manage
+        session lifecycle externally (e.g. a future shared-orchestrator design
+        per DEV-06) and for explicit mid-session resets.
+
+        Args:
+            session_id: The session whose cached state should be discarded.
+        """
+        self._face_cache.pop(session_id, None)
+        self._accumulator.reset(session_id)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -247,7 +267,10 @@ class FusionOrchestrator:
             results.append(lip_result)
 
         segments = await self.process_features(
-            session_id, results, health, ModalityPath.SPEECH,
+            session_id,
+            results,
+            health,
+            ModalityPath.SPEECH,
         )
         for seg in segments:
             await _maybe_await(send_fn(seg))
@@ -282,7 +305,10 @@ class FusionOrchestrator:
             return  # No PARTIAL to emit without TSL output.
 
         tsl_segments = await self.process_features(
-            session_id, [tsl_result], health, ModalityPath.SIGN,
+            session_id,
+            [tsl_result],
+            health,
+            ModalityPath.SIGN,
         )
         partial_id: str | None = None
         for seg in tsl_segments:
@@ -301,14 +327,19 @@ class FusionOrchestrator:
         except InferenceTimeoutError:
             # Promote TSL gloss to FINAL with a confidence penalty.
             final_segs = self._promote_gloss_to_final(
-                session_id, tsl_result, partial_id,
+                session_id,
+                tsl_result,
+                partial_id,
             )
             for seg in final_segs:
                 await _maybe_await(send_fn(seg))
             return
 
         final_segments = await self.process_features(
-            session_id, [tsl_result, gloss_result], health, ModalityPath.SIGN,
+            session_id,
+            [tsl_result, gloss_result],
+            health,
+            ModalityPath.SIGN,
         )
         for seg in final_segments:
             await _maybe_await(send_fn(seg))
@@ -333,22 +364,26 @@ class FusionOrchestrator:
             A list containing one FINAL TranscriptSegment (or empty if the
             penalised confidence would be suppressed).
         """
-        penalised = max(0.0, tsl_result.confidence - _GLOSS_TIMEOUT_CONFIDENCE_PENALTY)
+        penalised = max(
+            0.0, tsl_result.confidence - _GLOSS_TIMEOUT_CONFIDENCE_DEDUCTION
+        )
         if penalised <= 0.0:
             return []
 
-        return [TranscriptSegment(
-            segment_id=str(uuid.uuid4()),
-            session_id=session_id,
-            status=SegmentStatus.FINAL,
-            text=tsl_result.text,
-            source=ModalityType.TSL_RECOGNITION,
-            confidence=round(penalised, 4),
-            timestamp_ms=tsl_result.timestamp_ms,
-            duration_ms=tsl_result.duration_ms,
-            created_at_ms=int(time.time() * 1000),
-            replaces_segment_id=partial_id,
-        )]
+        return [
+            TranscriptSegment(
+                segment_id=str(uuid.uuid4()),
+                session_id=session_id,
+                status=SegmentStatus.FINAL,
+                text=tsl_result.text,
+                source=ModalityType.TSL_RECOGNITION,
+                confidence=round(penalised, 4),
+                timestamp_ms=tsl_result.timestamp_ms,
+                duration_ms=tsl_result.duration_ms,
+                created_at_ms=int(time.time() * 1000),
+                replaces_segment_id=partial_id,
+            )
+        ]
 
     # ------------------------------------------------------------------
     # Internal fusion helper (kept public for existing test compatibility)
@@ -380,9 +415,7 @@ class FusionOrchestrator:
             ValueError: No policy registered for ``modality_path``.
         """
         if modality_path not in self._policies:
-            raise ValueError(
-                f"No fusion policy registered for {modality_path.value}"
-            )
+            raise ValueError(f"No fusion policy registered for {modality_path.value}")
 
         # Check degraded mode: if any health signal triggers fallback and
         # only one result is available, use the degraded handler.
@@ -416,9 +449,7 @@ class FusionOrchestrator:
             List of TranscriptSegment objects (typically one PARTIAL).
         """
         if modality_path not in self._policies:
-            raise ValueError(
-                f"No fusion policy registered for {modality_path.value}"
-            )
+            raise ValueError(f"No fusion policy registered for {modality_path.value}")
 
         policy = self._policies[modality_path]
         return policy.fuse([result], health)
