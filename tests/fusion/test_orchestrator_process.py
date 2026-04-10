@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
-
-import numpy as np
-import pytest
 
 from sozia.common.interfaces import InferenceEngine, InferenceTimeoutError
 from sozia.common.models import (
@@ -34,7 +30,9 @@ _SESSION = "550e8400-e29b-41d4-a716-446655440000"
 
 
 def _cfg(model_id: str) -> ModelConfig:
-    return ModelConfig(model_id=model_id, weights_path="/tmp/noop", device="cpu", params={})
+    return ModelConfig(
+        model_id=model_id, weights_path="/tmp/noop", device="cpu", params={}
+    )
 
 
 def _result(
@@ -54,15 +52,25 @@ def _result(
 
 def _audio_health(available: bool = True, snr: float = 25.0) -> PipelineHealth:
     return PipelineHealth(
-        session_id=_SESSION, pipeline="audio", available=available,
-        fps=None, snr=snr, face_detected=None, last_updated_ms=1000,
+        session_id=_SESSION,
+        pipeline="audio",
+        available=available,
+        fps=None,
+        snr=snr,
+        face_detected=None,
+        last_updated_ms=1000,
     )
 
 
 def _video_health(available: bool = True, face_detected: bool = True) -> PipelineHealth:
     return PipelineHealth(
-        session_id=_SESSION, pipeline="video", available=available,
-        fps=30.0, snr=None, face_detected=face_detected, last_updated_ms=1000,
+        session_id=_SESSION,
+        pipeline="video",
+        available=available,
+        fps=30.0,
+        snr=None,
+        face_detected=face_detected,
+        last_updated_ms=1000,
     )
 
 
@@ -112,6 +120,7 @@ class _StubEngine(InferenceEngine):
 
     async def predict(self, features, timeout_ms: int = 2200) -> ModalityResult:
         from sozia.common.interfaces import ModelNotLoadedError
+
         if not self._loaded:
             raise ModelNotLoadedError(self._model_id)
         if self._raise_timeout:
@@ -147,7 +156,10 @@ def _make_orchestrator(
         )
         _asr._loaded = True
         orch.register_engine(
-            ModalityPath.SPEECH, ModalityType.ASR, _asr, _cfg("whisper"),
+            ModalityPath.SPEECH,
+            ModalityType.ASR,
+            _asr,
+            _cfg("whisper"),
         )
 
     if with_speech or lip_engine:
@@ -156,7 +168,10 @@ def _make_orchestrator(
         )
         _lip._loaded = True
         orch.register_engine(
-            ModalityPath.SPEECH, ModalityType.LIP_READING, _lip, _cfg("lip"),
+            ModalityPath.SPEECH,
+            ModalityType.LIP_READING,
+            _lip,
+            _cfg("lip"),
         )
 
     if with_sign or tsl_engine:
@@ -165,7 +180,10 @@ def _make_orchestrator(
         )
         _tsl._loaded = True
         orch.register_engine(
-            ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, _tsl, _cfg("tsl"),
+            ModalityPath.SIGN,
+            ModalityType.TSL_RECOGNITION,
+            _tsl,
+            _cfg("tsl"),
         )
 
     if with_sign or gloss_engine:
@@ -174,7 +192,10 @@ def _make_orchestrator(
         )
         _gloss._loaded = True
         orch.register_engine(
-            ModalityPath.SIGN, ModalityType.GLOSS_TO_TEXT, _gloss, _cfg("gemma"),
+            ModalityPath.SIGN,
+            ModalityType.GLOSS_TO_TEXT,
+            _gloss,
+            _cfg("gemma"),
         )
 
     return orch
@@ -190,7 +211,10 @@ class TestRegisterEngine:
         orch = FusionOrchestrator()
         engine = _StubEngine(_result(ModalityType.ASR, "x"))
         orch.register_engine(
-            ModalityPath.SPEECH, ModalityType.ASR, engine, _cfg("whisper"),
+            ModalityPath.SPEECH,
+            ModalityType.ASR,
+            engine,
+            _cfg("whisper"),
         )
         path_engines = orch._engines.get(ModalityPath.SPEECH, {})
         assert ModalityType.ASR in path_engines
@@ -200,7 +224,9 @@ class TestRegisterEngine:
         asr = _StubEngine(_result(ModalityType.ASR, "x"))
         lip = _StubEngine(_result(ModalityType.LIP_READING, "y"))
         orch.register_engine(ModalityPath.SPEECH, ModalityType.ASR, asr, _cfg("a"))
-        orch.register_engine(ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("b"))
+        orch.register_engine(
+            ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("b")
+        )
         path_engines = orch._engines[ModalityPath.SPEECH]
         assert ModalityType.ASR in path_engines
         assert ModalityType.LIP_READING in path_engines
@@ -227,7 +253,9 @@ class TestWarmUpCoolDownUpdated:
 
         orch = FusionOrchestrator()
         orch.register_engine(ModalityPath.SPEECH, ModalityType.ASR, asr, _cfg("w"))
-        orch.register_engine(ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l"))
+        orch.register_engine(
+            ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l")
+        )
 
         await orch.warm_up(ModalityPath.SPEECH)
         assert asr.is_loaded()
@@ -239,7 +267,9 @@ class TestWarmUpCoolDownUpdated:
 
         orch = FusionOrchestrator()
         orch.register_engine(ModalityPath.SPEECH, ModalityType.ASR, asr, _cfg("w"))
-        orch.register_engine(ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("t"))
+        orch.register_engine(
+            ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("t")
+        )
 
         await orch.warm_up(ModalityPath.SPEECH)
         await orch.warm_up(ModalityPath.SIGN)
@@ -259,8 +289,11 @@ class TestProcessSpeech:
         sent: list[TranscriptSegment] = []
 
         await orch.process(
-            _SESSION, _audio_chunk(), [_audio_health()],
-            ModalityPath.SPEECH, sent.append,
+            _SESSION,
+            _audio_chunk(),
+            [_audio_health()],
+            ModalityPath.SPEECH,
+            sent.append,
         )
 
         assert len(sent) >= 1
@@ -268,27 +301,37 @@ class TestProcessSpeech:
 
     async def test_audio_chunk_with_cached_face_emits_final(self):
         asr = _StubEngine(_result(ModalityType.ASR, "merhaba", 0.75), model_id="w")
-        lip = _StubEngine(_result(ModalityType.LIP_READING, "merhaba dünya", 0.85), model_id="l")
+        lip = _StubEngine(
+            _result(ModalityType.LIP_READING, "merhaba dünya", 0.85), model_id="l"
+        )
         asr._loaded = True
         lip._loaded = True
 
         orch = FusionOrchestrator()
         orch.register_policy(ModalityPath.SPEECH, SpeechFusionPolicy())
         orch.register_engine(ModalityPath.SPEECH, ModalityType.ASR, asr, _cfg("w"))
-        orch.register_engine(ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l"))
+        orch.register_engine(
+            ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l")
+        )
 
         # First send a landmark frame to populate the face cache.
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _landmark_frame(), [_video_health()],
-            ModalityPath.SPEECH, sent.append,
+            _SESSION,
+            _landmark_frame(),
+            [_video_health()],
+            ModalityPath.SPEECH,
+            sent.append,
         )
         assert sent == []  # face caching only, no inference yet
 
         # Now send audio chunk — both engines run.
         await orch.process(
-            _SESSION, _audio_chunk(), [_audio_health()],
-            ModalityPath.SPEECH, sent.append,
+            _SESSION,
+            _audio_chunk(),
+            [_audio_health()],
+            ModalityPath.SPEECH,
+            sent.append,
         )
         assert any(s.status == SegmentStatus.FINAL for s in sent)
 
@@ -301,12 +344,17 @@ class TestProcessSpeech:
         orch = FusionOrchestrator()
         orch.register_policy(ModalityPath.SPEECH, SpeechFusionPolicy())
         orch.register_engine(ModalityPath.SPEECH, ModalityType.ASR, asr, _cfg("w"))
-        orch.register_engine(ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l"))
+        orch.register_engine(
+            ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l")
+        )
 
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _audio_chunk(), [_audio_health()],
-            ModalityPath.SPEECH, sent.append,
+            _SESSION,
+            _audio_chunk(),
+            [_audio_health()],
+            ModalityPath.SPEECH,
+            sent.append,
         )
         # Only ASR runs (no cached face) → PARTIAL.
         assert len(sent) == 1
@@ -323,8 +371,11 @@ class TestProcessSpeech:
 
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _audio_chunk(), [_audio_health()],
-            ModalityPath.SPEECH, sent.append,
+            _SESSION,
+            _audio_chunk(),
+            [_audio_health()],
+            ModalityPath.SPEECH,
+            sent.append,
         )
         assert sent == []
 
@@ -337,18 +388,26 @@ class TestProcessSpeech:
         orch = FusionOrchestrator()
         orch.register_policy(ModalityPath.SPEECH, SpeechFusionPolicy())
         orch.register_engine(ModalityPath.SPEECH, ModalityType.ASR, asr, _cfg("w"))
-        orch.register_engine(ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l"))
+        orch.register_engine(
+            ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l")
+        )
 
         # Prime face cache first.
         await orch.process(
-            _SESSION, _landmark_frame(), [_video_health()],
-            ModalityPath.SPEECH, lambda s: None,
+            _SESSION,
+            _landmark_frame(),
+            [_video_health()],
+            ModalityPath.SPEECH,
+            lambda s: None,
         )
 
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _audio_chunk(), [_audio_health()],
-            ModalityPath.SPEECH, sent.append,
+            _SESSION,
+            _audio_chunk(),
+            [_audio_health()],
+            ModalityPath.SPEECH,
+            sent.append,
         )
         assert len(sent) == 1
         assert sent[0].status == SegmentStatus.PARTIAL
@@ -364,8 +423,11 @@ class TestProcessSpeech:
 
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _audio_chunk(), [_audio_health()],
-            ModalityPath.SPEECH, sent.append,
+            _SESSION,
+            _audio_chunk(),
+            [_audio_health()],
+            ModalityPath.SPEECH,
+            sent.append,
         )
         assert sent == []
 
@@ -374,8 +436,11 @@ class TestProcessSpeech:
         orch = _make_orchestrator(with_speech=True)
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _landmark_frame(), [_video_health()],
-            ModalityPath.SPEECH, sent.append,
+            _SESSION,
+            _landmark_frame(),
+            [_video_health()],
+            ModalityPath.SPEECH,
+            sent.append,
         )
         assert sent == []
 
@@ -391,8 +456,11 @@ class TestProcessSign:
         sent: list[TranscriptSegment] = []
         for i in range(4):
             await orch.process(
-                _SESSION, _landmark_frame(timestamp_ms=i), [_video_health()],
-                ModalityPath.SIGN, sent.append,
+                _SESSION,
+                _landmark_frame(timestamp_ms=i),
+                [_video_health()],
+                ModalityPath.SIGN,
+                sent.append,
             )
         assert sent == []
 
@@ -408,14 +476,21 @@ class TestProcessSign:
 
         orch = FusionOrchestrator(window_size=3)
         orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
-        orch.register_engine(ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl"))
-        orch.register_engine(ModalityPath.SIGN, ModalityType.GLOSS_TO_TEXT, gloss, _cfg("gemma"))
+        orch.register_engine(
+            ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl")
+        )
+        orch.register_engine(
+            ModalityPath.SIGN, ModalityType.GLOSS_TO_TEXT, gloss, _cfg("gemma")
+        )
 
         sent: list[TranscriptSegment] = []
         for i in range(3):
             await orch.process(
-                _SESSION, _landmark_frame(timestamp_ms=i), [_video_health()],
-                ModalityPath.SIGN, sent.append,
+                _SESSION,
+                _landmark_frame(timestamp_ms=i),
+                [_video_health()],
+                ModalityPath.SIGN,
+                sent.append,
             )
 
         # Should have: PARTIAL (TSL) + FINAL (gloss)
@@ -430,19 +505,27 @@ class TestProcessSign:
         )
         tsl._loaded = True
         gloss = _StubEngine(
-            _result(ModalityType.GLOSS_TO_TEXT, "Merhaba dünya.", 0.88), model_id="gemma"
+            _result(ModalityType.GLOSS_TO_TEXT, "Merhaba dünya.", 0.88),
+            model_id="gemma",
         )
         gloss._loaded = True
 
         orch = FusionOrchestrator(window_size=1)
         orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
-        orch.register_engine(ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl"))
-        orch.register_engine(ModalityPath.SIGN, ModalityType.GLOSS_TO_TEXT, gloss, _cfg("gemma"))
+        orch.register_engine(
+            ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl")
+        )
+        orch.register_engine(
+            ModalityPath.SIGN, ModalityType.GLOSS_TO_TEXT, gloss, _cfg("gemma")
+        )
 
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _landmark_frame(), [_video_health()],
-            ModalityPath.SIGN, sent.append,
+            _SESSION,
+            _landmark_frame(),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
         )
         partial = next(s for s in sent if s.status == SegmentStatus.PARTIAL)
         final = next(s for s in sent if s.status == SegmentStatus.FINAL)
@@ -456,12 +539,17 @@ class TestProcessSign:
 
         orch = FusionOrchestrator(window_size=1)
         orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
-        orch.register_engine(ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl"))
+        orch.register_engine(
+            ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl")
+        )
 
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _landmark_frame(), [_video_health()],
-            ModalityPath.SIGN, sent.append,
+            _SESSION,
+            _landmark_frame(),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
         )
         assert sent == []
 
@@ -475,13 +563,20 @@ class TestProcessSign:
 
         orch = FusionOrchestrator(window_size=1)
         orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
-        orch.register_engine(ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl"))
-        orch.register_engine(ModalityPath.SIGN, ModalityType.GLOSS_TO_TEXT, gloss, _cfg("gemma"))
+        orch.register_engine(
+            ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl")
+        )
+        orch.register_engine(
+            ModalityPath.SIGN, ModalityType.GLOSS_TO_TEXT, gloss, _cfg("gemma")
+        )
 
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _landmark_frame(), [_video_health()],
-            ModalityPath.SIGN, sent.append,
+            _SESSION,
+            _landmark_frame(),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
         )
 
         # PARTIAL (TSL gloss) + FINAL (promoted from TSL on gloss timeout)
@@ -503,12 +598,17 @@ class TestProcessSign:
 
         orch = FusionOrchestrator(window_size=1)
         orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
-        orch.register_engine(ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl"))
+        orch.register_engine(
+            ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl")
+        )
 
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _landmark_frame(), [_video_health()],
-            ModalityPath.SIGN, sent.append,
+            _SESSION,
+            _landmark_frame(),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
         )
         assert sent == []
 
@@ -516,7 +616,70 @@ class TestProcessSign:
         orch = _make_orchestrator(window_size=1, with_sign=True)
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _audio_chunk(), [_audio_health()],
-            ModalityPath.SIGN, sent.append,
+            _SESSION,
+            _audio_chunk(),
+            [_audio_health()],
+            ModalityPath.SIGN,
+            sent.append,
         )
         assert sent == []
+
+
+# ---------------------------------------------------------------------------
+# reset_session()
+# ---------------------------------------------------------------------------
+
+
+class TestResetSession:
+    async def test_reset_clears_face_cache(self):
+        """After reset, a new audio chunk sees no cached face landmarks."""
+        orch = _make_orchestrator(with_speech=True)
+        # Populate face cache.
+        await orch.process(
+            _SESSION,
+            _landmark_frame(),
+            [_video_health()],
+            ModalityPath.SPEECH,
+            lambda _: None,
+        )
+        orch.reset_session(_SESSION)
+        # After reset, audio chunk should produce ASR-only output (no lip result).
+        sent: list[TranscriptSegment] = []
+        await orch.process(
+            _SESSION,
+            _audio_chunk(),
+            [_audio_health()],
+            ModalityPath.SPEECH,
+            sent.append,
+        )
+        assert all(seg.source == ModalityType.ASR for seg in sent)
+
+    async def test_reset_clears_accumulator_buffer(self):
+        """After reset, frame count restarts from zero."""
+        orch = _make_orchestrator(window_size=3, with_sign=True)
+        # Push 2 of 3 frames (window not yet full).
+        for i in range(2):
+            await orch.process(
+                _SESSION,
+                _landmark_frame(timestamp_ms=i),
+                [_video_health()],
+                ModalityPath.SIGN,
+                lambda _: None,
+            )
+        orch.reset_session(_SESSION)
+        # Push 2 more — should still not hit the window (buffer was cleared).
+        sent: list[TranscriptSegment] = []
+        for i in range(2):
+            await orch.process(
+                _SESSION,
+                _landmark_frame(timestamp_ms=i + 10),
+                [_video_health()],
+                ModalityPath.SIGN,
+                sent.append,
+            )
+        assert sent == []
+
+    def test_reset_unknown_session_is_safe(self):
+        """reset_session on a session with no state does not raise."""
+        orch = FusionOrchestrator()
+        orch.reset_session("nonexistent-session")  # must not raise
