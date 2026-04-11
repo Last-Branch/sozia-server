@@ -109,7 +109,7 @@ class SessionHandler:
 
     async def _handle_landmark(self, data: dict) -> None:
         frame = LandmarkFrame(
-            session_id=data["session_id"],
+            session_id=self.session_id,
             timestamp_ms=data["timestamp_ms"],
             face_landmarks=data.get("face_landmarks"),
             left_hand_landmarks=data.get("left_hand_landmarks"),
@@ -126,7 +126,7 @@ class SessionHandler:
 
     async def _handle_audio(self, data: dict) -> None:
         chunk = AudioFeatureChunk(
-            session_id=data["session_id"],
+            session_id=self.session_id,
             timestamp_ms=data["timestamp_ms"],
             features=data["features"],
             feature_type=data["feature_type"],

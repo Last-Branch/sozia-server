@@ -253,3 +253,21 @@ class TestReceiveLoop:
         handler, orch = _make_handler(ws, ModalityPath.SPEECH)
         await handler.receive_loop()
         assert orch.process.await_count == 2
+
+    async def test_landmark_session_id_stamped_from_handler(self) -> None:
+        """Client-supplied session_id in payload must be ignored; handler's wins."""
+        msg = {**_make_landmark_msg(), "session_id": "attacker-session-id"}
+        ws = _make_ws(msg, {"type": "session_end"})
+        handler, orch = _make_handler(ws, ModalityPath.SIGN)
+        await handler.receive_loop()
+        frame: LandmarkFrame = orch.process.call_args.args[1]
+        assert frame.session_id == _SESSION
+
+    async def test_audio_session_id_stamped_from_handler(self) -> None:
+        """Client-supplied session_id in payload must be ignored; handler's wins."""
+        msg = {**_make_audio_msg(), "session_id": "attacker-session-id"}
+        ws = _make_ws(msg, {"type": "session_end"})
+        handler, orch = _make_handler(ws, ModalityPath.SPEECH)
+        await handler.receive_loop()
+        chunk: AudioFeatureChunk = orch.process.call_args.args[1]
+        assert chunk.session_id == _SESSION
