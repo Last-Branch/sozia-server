@@ -78,9 +78,12 @@ class WebSocketGateway:
         """
         await websocket.accept()
 
-        # Step 2 — read session_init.
+        # Step 2 — read session_init (5-second deadline to prevent idle DoS).
         try:
-            init_msg = await websocket.receive_json()
+            init_msg = await asyncio.wait_for(websocket.receive_json(), timeout=5.0)
+        except asyncio.TimeoutError:
+            await self._error_close(websocket, "", 4002)
+            return
         except WebSocketDisconnect:
             return
 

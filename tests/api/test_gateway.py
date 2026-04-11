@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
@@ -65,6 +66,19 @@ class TestConstruction:
 # ---------------------------------------------------------------------------
 # on_connect() — auth
 # ---------------------------------------------------------------------------
+
+
+class TestOnConnectTimeout:
+    async def test_session_init_timeout_closes_4002(self) -> None:
+        gw = _make_gateway()
+        ws = AsyncMock()
+        ws.accept = AsyncMock()
+        ws.send_text = AsyncMock()
+        ws.close = AsyncMock()
+        with patch("sozia.api.gateway.asyncio.wait_for", side_effect=asyncio.TimeoutError):
+            await gw.on_connect(ws)
+        ws.close.assert_awaited_once()
+        assert ws.close.call_args[1]["code"] == 4002
 
 
 class TestOnConnectAuth:
