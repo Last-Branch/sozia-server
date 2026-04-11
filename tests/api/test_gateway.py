@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 from sozia.api.auth_middleware import AuthMiddleware
@@ -20,7 +18,9 @@ _SESSION = "550e8400-e29b-41d4-a716-446655440000"
 _KEY = "test-api-key"
 
 
-def _make_ws(messages: list, *, state: WebSocketState = WebSocketState.CONNECTED) -> AsyncMock:
+def _make_ws(
+    messages: list, *, state: WebSocketState = WebSocketState.CONNECTED
+) -> AsyncMock:
     """Build a mock WebSocket that accepts then yields messages."""
     ws = AsyncMock()
     ws.accept = AsyncMock()
@@ -28,9 +28,7 @@ def _make_ws(messages: list, *, state: WebSocketState = WebSocketState.CONNECTED
     ws.close = AsyncMock()
     ws.client_state = state
     # receive_json is called after accept, so we mock its side_effect
-    ws.receive_json = AsyncMock(
-        side_effect=[*messages, WebSocketDisconnect(code=1000)]
-    )
+    ws.receive_json = AsyncMock(side_effect=[*messages, WebSocketDisconnect(code=1000)])
     return ws
 
 
@@ -249,6 +247,7 @@ class TestStatusMessages:
         ws = _make_ws([_valid_session_init(), {"type": "session_end"}])
 
         import json
+
         ws.send_text = AsyncMock(side_effect=lambda t: sent_texts.append(t))
 
         await gw.on_connect(ws)
@@ -269,6 +268,7 @@ class TestStatusMessages:
         ws = _make_ws([_valid_session_init(), {"type": "session_end"}])
 
         import json
+
         ws.send_text = AsyncMock(side_effect=lambda t: sent_texts.append(t))
 
         await gw.on_connect(ws)

@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
-from dataclasses import asdict
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
-import pytest
 from starlette.websockets import WebSocketDisconnect
 
 from sozia.common.models import (
@@ -95,7 +92,9 @@ def _make_ws(*messages: dict[str, Any]) -> AsyncMock:
     return ws
 
 
-def _make_handler(ws: AsyncMock | None = None, path: ModalityPath = ModalityPath.SPEECH) -> tuple[SessionHandler, AsyncMock]:
+def _make_handler(
+    ws: AsyncMock | None = None, path: ModalityPath = ModalityPath.SPEECH
+) -> tuple[SessionHandler, AsyncMock]:
     ws = ws or _make_ws({"type": "session_end"})
     orchestrator = AsyncMock()
     orchestrator.process = AsyncMock()
@@ -203,7 +202,11 @@ class TestReceiveLoop:
         await handler.receive_loop()
         orch.process.assert_awaited_once()
         _, kwargs = orch.process.call_args
-        features = orch.process.call_args[0][1] if orch.process.call_args[0] else orch.process.call_args.args[1]
+        features = (
+            orch.process.call_args[0][1]
+            if orch.process.call_args[0]
+            else orch.process.call_args.args[1]
+        )
         assert isinstance(features, LandmarkFrame)
 
     async def test_audio_chunk_calls_process(self) -> None:

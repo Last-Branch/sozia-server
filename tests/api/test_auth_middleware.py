@@ -87,9 +87,7 @@ class TestFromEnv:
         m = AuthMiddleware.from_env()
         assert m.authenticate(valid_key) is True
 
-    def test_raises_when_env_var_missing(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_raises_when_env_var_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("SOZIA_API_KEY", raising=False)
         with pytest.raises(EnvironmentError, match="SOZIA_API_KEY"):
             AuthMiddleware.from_env()

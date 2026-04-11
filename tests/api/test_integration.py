@@ -7,7 +7,6 @@ without loading any real ML models.
 
 from __future__ import annotations
 
-import json
 from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -18,12 +17,6 @@ from fastapi.testclient import TestClient
 
 from sozia.api.auth_middleware import AuthMiddleware
 from sozia.api.gateway import WebSocketGateway
-from sozia.common.models import (
-    ModalityPath,
-    ModalityType,
-    SegmentStatus,
-    TranscriptSegment,
-)
 
 # ---------------------------------------------------------------------------
 # Constants

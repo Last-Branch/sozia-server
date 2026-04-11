@@ -21,7 +21,6 @@ from sozia.common.models import (
     AudioFeatureChunk,
     LandmarkFrame,
     ModalityPath,
-    ModalityType,
     PipelineHealth,
     TranscriptSegment,
 )
