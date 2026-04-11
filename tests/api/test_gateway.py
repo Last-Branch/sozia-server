@@ -75,7 +75,9 @@ class TestOnConnectTimeout:
         ws.accept = AsyncMock()
         ws.send_text = AsyncMock()
         ws.close = AsyncMock()
-        with patch("sozia.api.gateway.asyncio.wait_for", side_effect=asyncio.TimeoutError):
+        with patch(
+            "sozia.api.gateway.asyncio.wait_for", side_effect=asyncio.TimeoutError
+        ):
             await gw.on_connect(ws)
         ws.close.assert_awaited_once()
         assert ws.close.call_args[1]["code"] == 4002
