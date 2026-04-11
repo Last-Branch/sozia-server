@@ -203,10 +203,3 @@ Google Drive or GitHub Release assets in `sozia-research`, then point the env
 vars at the local paths.
 
 A `download_models.sh` helper script will be added in a future release.
-
----
-
-## Architecture
-
-See [`CLAUDE.md`](CLAUDE.md) for the full module guide, dependency rules,
-latency budget, and design decisions.
