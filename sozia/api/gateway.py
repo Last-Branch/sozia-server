@@ -151,9 +151,9 @@ class WebSocketGateway:
         async with self._lock:
             handler = self.active_sessions.pop(session_id, None)
 
-        if handler is not None and hasattr(handler, "_orchestrator"):
+        if handler is not None:
             try:
-                await handler._orchestrator.cool_down()
+                await handler.close()
             except Exception:
                 logger.exception("cool_down failed for session %s", session_id)
 

@@ -75,6 +75,17 @@ class SessionHandler:
         await self._ws.send_text(json.dumps(payload))
 
     # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    async def close(self) -> None:
+        """Release orchestrator resources for this session.
+
+        Called by the gateway on both graceful disconnect and server shutdown.
+        """
+        await self._orchestrator.cool_down()
+
+    # ------------------------------------------------------------------
     # Inbound loop
     # ------------------------------------------------------------------
 

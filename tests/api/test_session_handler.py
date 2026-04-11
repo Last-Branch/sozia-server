@@ -126,6 +126,19 @@ class TestConstruction:
 
 
 # ---------------------------------------------------------------------------
+# close()
+# ---------------------------------------------------------------------------
+
+
+class TestClose:
+    async def test_close_calls_cool_down(self) -> None:
+        handler, orch = _make_handler()
+        orch.cool_down = AsyncMock()
+        await handler.close()
+        orch.cool_down.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
 # send_segment()
 # ---------------------------------------------------------------------------
 
