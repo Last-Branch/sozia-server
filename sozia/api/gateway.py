@@ -139,6 +139,24 @@ class WebSocketGateway:
             # Step 8 — clean up regardless of how the loop ended.
             await self.on_disconnect(session_id)
 
+    async def shutdown_all_sessions(self) -> None:
+        """Close every active session during server shutdown.
+
+        Drains ``active_sessions`` and calls ``close()`` on each handler so
+        that per-session orchestrators release GPU memory before
+        ``ModelRegistry.unload_all()`` is called.
+        """
+        async with self._lock:
+            handlers = list(self.active_sessions.values())
+            self.active_sessions.clear()
+
+        for handler in handlers:
+            if handler is not None:
+                try:
+                    await handler.close()
+                except Exception:
+                    logger.exception("close failed during server shutdown")
+
     async def on_disconnect(self, session_id: str) -> None:
         """Tear down the session identified by ``session_id``.
 

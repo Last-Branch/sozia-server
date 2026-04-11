@@ -209,6 +209,41 @@ class TestSessionLifecycle:
 
 
 # ---------------------------------------------------------------------------
+# shutdown_all_sessions()
+# ---------------------------------------------------------------------------
+
+
+class TestShutdownAllSessions:
+    async def test_clears_all_active_sessions(self) -> None:
+        gw = _make_gateway()
+        h1, h2 = AsyncMock(), AsyncMock()
+        gw.active_sessions["s1"] = h1
+        gw.active_sessions["s2"] = h2
+        await gw.shutdown_all_sessions()
+        assert gw.active_sessions == {}
+
+    async def test_calls_close_on_each_handler(self) -> None:
+        gw = _make_gateway()
+        h1, h2 = AsyncMock(), AsyncMock()
+        gw.active_sessions["s1"] = h1
+        gw.active_sessions["s2"] = h2
+        await gw.shutdown_all_sessions()
+        h1.close.assert_awaited_once()
+        h2.close.assert_awaited_once()
+
+    async def test_noop_when_no_active_sessions(self) -> None:
+        gw = _make_gateway()
+        await gw.shutdown_all_sessions()  # must not raise
+
+    async def test_skips_none_placeholder(self) -> None:
+        """Slot reserved during warm-up (None) must not cause AttributeError."""
+        gw = _make_gateway()
+        gw.active_sessions["s1"] = None  # type: ignore[assignment]
+        await gw.shutdown_all_sessions()  # must not raise
+        assert gw.active_sessions == {}
+
+
+# ---------------------------------------------------------------------------
 # on_disconnect()
 # ---------------------------------------------------------------------------
 

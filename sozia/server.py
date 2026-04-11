@@ -219,7 +219,9 @@ def create_app(auth: AuthMiddleware | None = None) -> FastAPI:
 
         yield
 
-        # Shutdown — release all loaded models.
+        # Shutdown — close per-session orchestrators first so their engines
+        # release GPU memory, then clean up anything the registry still holds.
+        await gateway.shutdown_all_sessions()
         await registry.unload_all()
         logger.info("All models unloaded. Server shutting down.")
 
