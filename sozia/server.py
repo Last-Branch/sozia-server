@@ -43,6 +43,7 @@ ENV_DEVICE = "SOZIA_DEVICE"
 ENV_WHISPER_WEIGHTS = "SOZIA_WHISPER_WEIGHTS"
 ENV_LIP_WEIGHTS = "SOZIA_LIP_WEIGHTS"
 ENV_TSL_WEIGHTS = "SOZIA_TSL_WEIGHTS"
+ENV_TSL_SCALER = "SOZIA_TSL_SCALER"
 ENV_GLOSS_WEIGHTS = "SOZIA_GLOSS_WEIGHTS"
 
 _DEFAULT_DEVICE = "cpu"
@@ -93,13 +94,18 @@ def _sign_configs(device: str) -> tuple[ModelConfig | None, ModelConfig | None]:
     """Return (tsl_config, gloss_config); None where weights are not configured."""
     tsl_path = _weights(ENV_TSL_WEIGHTS)
     gloss_path = _weights(ENV_GLOSS_WEIGHTS)
+    tsl_scaler = _weights(ENV_TSL_SCALER)
+
+    tsl_params: dict = {}
+    if tsl_scaler:
+        tsl_params["scaler_path"] = tsl_scaler
 
     tsl_cfg = (
         ModelConfig(
             model_id="tsl-gru-v1",
             weights_path=tsl_path,
             device=device,
-            params={},
+            params=tsl_params,
         )
         if tsl_path
         else None

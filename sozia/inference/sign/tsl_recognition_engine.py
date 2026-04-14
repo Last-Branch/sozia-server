@@ -56,6 +56,8 @@ class TslRecognitionEngine(InferenceEngine):
             normalize (bool): Apply StandardScaler, default ``True``.
             apply_interpolation (bool): Interpolate missing landmarks,
                 default ``True``.
+            scaler_path (str): Explicit path to a ``.pkl`` scaler file.
+                Takes priority over the candidate search in the run dir.
     """
 
     def __init__(self) -> None:
@@ -79,8 +81,10 @@ class TslRecognitionEngine(InferenceEngine):
         device = torch.device(config.device)
         self._normalize = config.params.get("normalize", True)
         self._apply_interpolation = config.params.get("apply_interpolation", True)
+        scaler_path_str = config.params.get("scaler_path")
+        scaler_path = Path(scaler_path_str) if scaler_path_str else None
 
-        run_data = await asyncio.to_thread(self._load_run, run_dir, device)
+        run_data = await asyncio.to_thread(self._load_run, run_dir, device, scaler_path)
 
         self._model = run_data["model"]
         self._scaler = run_data["scaler"]
@@ -223,7 +227,7 @@ class TslRecognitionEngine(InferenceEngine):
         return preds, probs
 
     @staticmethod
-    def _load_run(run_dir: Path, device: torch.device) -> dict:
+    def _load_run(run_dir: Path, device: torch.device, scaler_path: Path | None = None) -> dict:
         """Load model, scaler, and metadata from a training run directory.
 
         Mirrors ``sozia-research/tsl_recognition/evaluation/inference._load_run``
@@ -265,10 +269,13 @@ class TslRecognitionEngine(InferenceEngine):
         # Load scaler.
         scaler = None
         if normalize:
-            scaler_candidates = [
+            scaler_candidates: list[Path] = []
+            if scaler_path is not None:
+                scaler_candidates.append(scaler_path)
+            scaler_candidates.extend([
                 run_dir / f"scaler_{split_mode}.pkl",
                 run_dir / "scaler.pkl",
-            ]
+            ])
             # Also check dataset processed dir if metadata has dataset name.
             dataset_name = meta.get("dataset", "bosphorus")
             data_root = Path(meta.get("data_root", ""))

@@ -31,22 +31,16 @@ All config comes from environment variables.
 | `SOZIA_DEVICE` | no | `cpu` | `"cpu"` or `"cuda"`. |
 | `SOZIA_WHISPER_WEIGHTS` | no | — | Path to Whisper ASR weights. Speech path is disabled if unset. |
 | `SOZIA_LIP_WEIGHTS` | no | — | Path to lip-reading weights. Optional — speech path works without it. |
-| `SOZIA_TSL_WEIGHTS` | no | — | Path to TSL recognition weights. Sign path is disabled if unset. |
+| `SOZIA_TSL_WEIGHTS` | no | — | Path to TSL recognition `run_*` directory containing `best_model.pt` and `config.json`. Sign path is disabled if unset. |
+| `SOZIA_TSL_SCALER` | no | — | Path to the StandardScaler `.pkl` for TSL features (e.g. `scalers/AUTSL/scaler_signer.pkl`). Falls back to searching the run directory if unset. |
 | `SOZIA_GLOSS_WEIGHTS` | no | — | Path to Gemma-9B LoRA weights. Sign path falls back to raw gloss if unset. |
 
 ### Local development
 
-Create a `.env` in the project root (already in `.gitignore`):
+Copy `.env.example` to `.env` (already in `.gitignore`) and fill in the paths you have locally:
 
-```dotenv
-SOZIA_API_KEY=dev-only-key-change-in-production
-SOZIA_DEVICE=cpu
-
-# Omit these if you don't have weights locally
-# SOZIA_WHISPER_WEIGHTS=/path/to/whisper-small-tr.pt
-# SOZIA_LIP_WEIGHTS=/path/to/lip-reading-v1.pt
-# SOZIA_TSL_WEIGHTS=/path/to/tsl-gru-v1.pt
-# SOZIA_GLOSS_WEIGHTS=/path/to/gemma-9b-gloss-tr/
+```bash
+cp .env.example .env
 ```
 
 Load it before starting:
