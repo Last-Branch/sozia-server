@@ -121,7 +121,9 @@ class TslRecognitionEngine(InferenceEngine):
         try:
             top_preds, probs = await asyncio.wait_for(
                 asyncio.to_thread(
-                    self._run_inference, kp_array, actual_length,
+                    self._run_inference,
+                    kp_array,
+                    actual_length,
                 ),
                 timeout=timeout_ms / 1000.0,
             )
@@ -161,7 +163,8 @@ class TslRecognitionEngine(InferenceEngine):
     # ------------------------------------------------------------------
 
     def _preprocess(
-        self, features: np.ndarray,
+        self,
+        features: np.ndarray,
     ) -> tuple[np.ndarray, int]:
         """Preprocess landmark frames identically to the training pipeline."""
         arr = np.asarray(features, dtype=np.float32)
@@ -179,6 +182,7 @@ class TslRecognitionEngine(InferenceEngine):
                 from sozia.inference.sign._interpolation import (
                     interpolate_missing_keypoints,
                 )
+
                 arr = interpolate_missing_keypoints(arr).astype(np.float32)
             except ImportError:
                 pass
@@ -190,9 +194,15 @@ class TslRecognitionEngine(InferenceEngine):
         # Truncate or sample long sequences.
         if n_frames > self._max_seq_len:
             if self._sequence_handling == "uniform_sample":
-                indices = np.linspace(
-                    0, n_frames - 1, self._max_seq_len,
-                ).round().astype(int)
+                indices = (
+                    np.linspace(
+                        0,
+                        n_frames - 1,
+                        self._max_seq_len,
+                    )
+                    .round()
+                    .astype(int)
+                )
                 arr = arr[indices]
             else:
                 arr = arr[: self._max_seq_len]
@@ -211,7 +221,9 @@ class TslRecognitionEngine(InferenceEngine):
         return arr, actual_length
 
     def _run_inference(
-        self, kp_array: np.ndarray, actual_length: int,
+        self,
+        kp_array: np.ndarray,
+        actual_length: int,
     ) -> tuple[list[tuple[str, float]], np.ndarray]:
         """Synchronous GRU forward pass + softmax — called inside ``to_thread``."""
         x = torch.tensor(kp_array, dtype=torch.float32).unsqueeze(0).to(self._device)
@@ -227,7 +239,9 @@ class TslRecognitionEngine(InferenceEngine):
         return preds, probs
 
     @staticmethod
-    def _load_run(run_dir: Path, device: torch.device, scaler_path: Path | None = None) -> dict:
+    def _load_run(
+        run_dir: Path, device: torch.device, scaler_path: Path | None = None
+    ) -> dict:
         """Load model, scaler, and metadata from a training run directory.
 
         Mirrors ``sozia-research/tsl_recognition/evaluation/inference._load_run``
@@ -272,10 +286,12 @@ class TslRecognitionEngine(InferenceEngine):
             scaler_candidates: list[Path] = []
             if scaler_path is not None:
                 scaler_candidates.append(scaler_path)
-            scaler_candidates.extend([
-                run_dir / f"scaler_{split_mode}.pkl",
-                run_dir / "scaler.pkl",
-            ])
+            scaler_candidates.extend(
+                [
+                    run_dir / f"scaler_{split_mode}.pkl",
+                    run_dir / "scaler.pkl",
+                ]
+            )
             # Also check dataset processed dir if metadata has dataset name.
             dataset_name = meta.get("dataset", "bosphorus")
             data_root = Path(meta.get("data_root", ""))

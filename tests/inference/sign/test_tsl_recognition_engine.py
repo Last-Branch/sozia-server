@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 import torch
 
-from sozia.common.interfaces import InferenceTimeoutError, ModelNotLoadedError
+from sozia.common.interfaces import ModelNotLoadedError
 from sozia.common.models import ModelConfig, ModalityType
 
 
@@ -32,7 +30,9 @@ class _FakeScaler:
         return x
 
 
-def _make_config(run_dir: str, model_id: str = "tsl-gru-v1", params: dict | None = None) -> ModelConfig:
+def _make_config(
+    run_dir: str, model_id: str = "tsl-gru-v1", params: dict | None = None
+) -> ModelConfig:
     return ModelConfig(
         model_id=model_id,
         weights_path=run_dir,
@@ -229,7 +229,9 @@ class TestTslRecognitionEngineScalerPath:
         engine = TslRecognitionEngine()
         # Fake path that doesn't exist — engine should load fine (scaler stays None).
         await engine.load_model(
-            _make_config(str(run_dir), params={"scaler_path": "/nonexistent/scaler.pkl"})
+            _make_config(
+                str(run_dir), params={"scaler_path": "/nonexistent/scaler.pkl"}
+            )
         )
         assert engine.is_loaded()
         assert engine._scaler is None
@@ -252,8 +254,10 @@ class TestTslRecognitionEngineLoadErrors:
         run_dir = tmp_path / "run_no_ckpt"
         run_dir.mkdir()
         config = {
-            "model_arch": "gru", "model_size": "small",
-            "feature_dim": _FEATURE_DIM, "classes_to_process": ["A", "B"],
+            "model_arch": "gru",
+            "model_size": "small",
+            "feature_dim": _FEATURE_DIM,
+            "classes_to_process": ["A", "B"],
             "max_sequence_length": 150,
         }
         with open(run_dir / "config.json", "w") as f:
@@ -271,8 +275,10 @@ class TestGruModel:
         from sozia.inference.sign._gru_model import ActionGRU
 
         model = ActionGRU(
-            input_size=_FEATURE_DIM, num_classes=_NUM_CLASSES,
-            model_size="small", dropout=0.4,
+            input_size=_FEATURE_DIM,
+            num_classes=_NUM_CLASSES,
+            model_size="small",
+            dropout=0.4,
         )
         x = torch.randn(2, 50, _FEATURE_DIM)
         lengths = torch.tensor([50, 30])
@@ -283,7 +289,8 @@ class TestGruModel:
         from sozia.inference.sign._gru_model import ActionGRU
 
         model = ActionGRU(
-            input_size=_FEATURE_DIM, num_classes=_NUM_CLASSES,
+            input_size=_FEATURE_DIM,
+            num_classes=_NUM_CLASSES,
         )
         model.eval()  # BatchNorm requires eval mode for batch_size=1
         x = torch.randn(1, 50, _FEATURE_DIM)
