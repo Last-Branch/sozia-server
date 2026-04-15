@@ -47,7 +47,7 @@ def _make_features(n_frames: int = 50) -> np.ndarray:
 
 def _create_fake_run_dir(tmp_path: Path) -> Path:
     """Create a minimal run directory with config.json and best_model.pt."""
-    from sozia.inference.sign._gru_model import ActionGRU
+    from sozia.server.inference.sign._gru_model import ActionGRU
 
     run_dir = tmp_path / "run_001"
     run_dir.mkdir()
@@ -85,14 +85,14 @@ def _create_fake_run_dir(tmp_path: Path) -> Path:
 
 class TestTslRecognitionEngineState:
     async def test_not_loaded_initially(self):
-        from sozia.inference.sign.tsl_recognition_engine import TslRecognitionEngine
+        from sozia.server.inference.sign.tsl_recognition_engine import TslRecognitionEngine
 
         engine = TslRecognitionEngine()
         assert engine.is_loaded() is False
         assert engine.get_model_id() == ""
 
     async def test_load_and_unload_lifecycle(self, tmp_path):
-        from sozia.inference.sign.tsl_recognition_engine import TslRecognitionEngine
+        from sozia.server.inference.sign.tsl_recognition_engine import TslRecognitionEngine
 
         run_dir = _create_fake_run_dir(tmp_path)
         engine = TslRecognitionEngine()
@@ -108,14 +108,14 @@ class TestTslRecognitionEngineState:
 
 class TestTslRecognitionEnginePredict:
     async def test_predict_raises_when_not_loaded(self):
-        from sozia.inference.sign.tsl_recognition_engine import TslRecognitionEngine
+        from sozia.server.inference.sign.tsl_recognition_engine import TslRecognitionEngine
 
         engine = TslRecognitionEngine()
         with pytest.raises(ModelNotLoadedError):
             await engine.predict(_make_features())
 
     async def test_predict_returns_modality_result(self, tmp_path):
-        from sozia.inference.sign.tsl_recognition_engine import TslRecognitionEngine
+        from sozia.server.inference.sign.tsl_recognition_engine import TslRecognitionEngine
 
         run_dir = _create_fake_run_dir(tmp_path)
         engine = TslRecognitionEngine()
@@ -129,7 +129,7 @@ class TestTslRecognitionEnginePredict:
         assert result.inference_latency_ms >= 0
 
     async def test_predict_handles_long_sequences(self, tmp_path):
-        from sozia.inference.sign.tsl_recognition_engine import TslRecognitionEngine
+        from sozia.server.inference.sign.tsl_recognition_engine import TslRecognitionEngine
 
         run_dir = _create_fake_run_dir(tmp_path)
         engine = TslRecognitionEngine()
@@ -139,7 +139,7 @@ class TestTslRecognitionEnginePredict:
         assert result.modality_type == ModalityType.TSL_RECOGNITION
 
     async def test_predict_handles_short_sequences(self, tmp_path):
-        from sozia.inference.sign.tsl_recognition_engine import TslRecognitionEngine
+        from sozia.server.inference.sign.tsl_recognition_engine import TslRecognitionEngine
 
         run_dir = _create_fake_run_dir(tmp_path)
         engine = TslRecognitionEngine()
@@ -151,7 +151,7 @@ class TestTslRecognitionEnginePredict:
 
 class TestTslRecognitionEnginePreprocess:
     async def test_rejects_1d_input(self):
-        from sozia.inference.sign.tsl_recognition_engine import TslRecognitionEngine
+        from sozia.server.inference.sign.tsl_recognition_engine import TslRecognitionEngine
 
         engine = TslRecognitionEngine()
         engine._model = MagicMock()
@@ -159,7 +159,7 @@ class TestTslRecognitionEnginePreprocess:
             engine._preprocess(np.zeros(100, dtype=np.float32))
 
     async def test_pad_short_sequence(self):
-        from sozia.inference.sign.tsl_recognition_engine import TslRecognitionEngine
+        from sozia.server.inference.sign.tsl_recognition_engine import TslRecognitionEngine
 
         engine = TslRecognitionEngine()
         engine._model = MagicMock()
@@ -173,7 +173,7 @@ class TestTslRecognitionEnginePreprocess:
         assert length == 10
 
     async def test_truncate_long_sequence(self):
-        from sozia.inference.sign.tsl_recognition_engine import TslRecognitionEngine
+        from sozia.server.inference.sign.tsl_recognition_engine import TslRecognitionEngine
 
         engine = TslRecognitionEngine()
         engine._model = MagicMock()
@@ -194,7 +194,7 @@ class TestTslRecognitionEngineScalerPath:
         import json
         import pickle
 
-        from sozia.inference.sign.tsl_recognition_engine import TslRecognitionEngine
+        from sozia.server.inference.sign.tsl_recognition_engine import TslRecognitionEngine
 
         run_dir = _create_fake_run_dir(tmp_path)
 
@@ -223,7 +223,7 @@ class TestTslRecognitionEngineScalerPath:
 
     async def test_missing_explicit_scaler_path_falls_back(self, tmp_path):
         """If scaler_path points to a non-existent file, fall back to candidates."""
-        from sozia.inference.sign.tsl_recognition_engine import TslRecognitionEngine
+        from sozia.server.inference.sign.tsl_recognition_engine import TslRecognitionEngine
 
         run_dir = _create_fake_run_dir(tmp_path)
         engine = TslRecognitionEngine()
@@ -239,7 +239,7 @@ class TestTslRecognitionEngineScalerPath:
 
 class TestTslRecognitionEngineLoadErrors:
     async def test_missing_config_json(self, tmp_path):
-        from sozia.inference.sign.tsl_recognition_engine import TslRecognitionEngine
+        from sozia.server.inference.sign.tsl_recognition_engine import TslRecognitionEngine
 
         empty_dir = tmp_path / "empty_run"
         empty_dir.mkdir()
@@ -249,7 +249,7 @@ class TestTslRecognitionEngineLoadErrors:
             await engine.load_model(_make_config(str(empty_dir)))
 
     async def test_missing_checkpoint(self, tmp_path):
-        from sozia.inference.sign.tsl_recognition_engine import TslRecognitionEngine
+        from sozia.server.inference.sign.tsl_recognition_engine import TslRecognitionEngine
 
         run_dir = tmp_path / "run_no_ckpt"
         run_dir.mkdir()
@@ -272,7 +272,7 @@ class TestGruModel:
     """Smoke test the inline GRU model."""
 
     def test_forward_shape(self):
-        from sozia.inference.sign._gru_model import ActionGRU
+        from sozia.server.inference.sign._gru_model import ActionGRU
 
         model = ActionGRU(
             input_size=_FEATURE_DIM,
@@ -286,7 +286,7 @@ class TestGruModel:
         assert out.shape == (2, _NUM_CLASSES)
 
     def test_forward_without_lengths(self):
-        from sozia.inference.sign._gru_model import ActionGRU
+        from sozia.server.inference.sign._gru_model import ActionGRU
 
         model = ActionGRU(
             input_size=_FEATURE_DIM,

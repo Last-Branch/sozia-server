@@ -15,8 +15,8 @@ import pytest
 from fastapi import FastAPI, WebSocket
 from fastapi.testclient import TestClient
 
-from sozia.api.auth_middleware import AuthMiddleware
-from sozia.api.gateway import WebSocketGateway
+from sozia.server.api.auth_middleware import AuthMiddleware
+from sozia.server.api.gateway import WebSocketGateway
 
 # ---------------------------------------------------------------------------
 # Constants

@@ -23,10 +23,10 @@ from sozia.common.models import (
     PipelineHealth,
     SegmentStatus,
 )
-from sozia.fusion.degraded_mode_handler import DegradedModeHandler
-from sozia.fusion.orchestrator import FusionOrchestrator
-from sozia.fusion.sign_fusion_policy import SignFusionPolicy
-from sozia.fusion.speech_fusion_policy import SpeechFusionPolicy
+from sozia.server.fusion.degraded_mode_handler import DegradedModeHandler
+from sozia.server.fusion.orchestrator import FusionOrchestrator
+from sozia.server.fusion.sign_fusion_policy import SignFusionPolicy
+from sozia.server.fusion.speech_fusion_policy import SpeechFusionPolicy
 
 # ---------------------------------------------------------------------------
 # Helpers

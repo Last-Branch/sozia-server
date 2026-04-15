@@ -11,7 +11,7 @@ from sozia.common.models import (
     POSE_LANDMARK_COUNT,
     LandmarkFrame,
 )
-from sozia.fusion.frame_accumulator import FEATURE_DIM, FrameAccumulator
+from sozia.server.fusion.frame_accumulator import FEATURE_DIM, FrameAccumulator
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
-from sozia.api.auth_middleware import AuthMiddleware
-from sozia.api.gateway import WebSocketGateway
+from sozia.server.api.auth_middleware import AuthMiddleware
+from sozia.server.api.gateway import WebSocketGateway
 
 
 # ---------------------------------------------------------------------------

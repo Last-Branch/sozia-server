@@ -45,14 +45,14 @@ def _make_landmarks_3d(n_frames: int = 30) -> np.ndarray:
 
 class TestLipReadingEngineState:
     async def test_not_loaded_initially(self):
-        from sozia.inference.speech.lip_reading_engine import LipReadingEngine
+        from sozia.server.inference.speech.lip_reading_engine import LipReadingEngine
 
         engine = LipReadingEngine()
         assert engine.is_loaded() is False
         assert engine.get_model_id() == ""
 
     async def test_load_and_unload_lifecycle(self):
-        from sozia.inference.speech.lip_reading_engine import (
+        from sozia.server.inference.speech.lip_reading_engine import (
             LipReadingEngine,
             LipReadingModel,
         )
@@ -75,14 +75,14 @@ class TestLipReadingEngineState:
 
 class TestLipReadingEnginePredict:
     async def test_predict_raises_when_not_loaded(self):
-        from sozia.inference.speech.lip_reading_engine import LipReadingEngine
+        from sozia.server.inference.speech.lip_reading_engine import LipReadingEngine
 
         engine = LipReadingEngine()
         with pytest.raises(ModelNotLoadedError):
             await engine.predict(_make_landmarks())
 
     async def test_predict_returns_modality_result(self):
-        from sozia.inference.speech.lip_reading_engine import (
+        from sozia.server.inference.speech.lip_reading_engine import (
             LipReadingEngine,
             LipReadingModel,
         )
@@ -103,7 +103,7 @@ class TestLipReadingEnginePredict:
         assert result.inference_latency_ms >= 0
 
     async def test_predict_accepts_3d_landmarks(self):
-        from sozia.inference.speech.lip_reading_engine import (
+        from sozia.server.inference.speech.lip_reading_engine import (
             LipReadingEngine,
             LipReadingModel,
         )
@@ -123,7 +123,7 @@ class TestLipReadingEnginePredict:
 
 class TestLipReadingEngineInput:
     async def test_rejects_wrong_feature_dim(self):
-        from sozia.inference.speech.lip_reading_engine import LipReadingEngine
+        from sozia.server.inference.speech.lip_reading_engine import LipReadingEngine
 
         engine = LipReadingEngine()
         engine._model = MagicMock()
@@ -131,7 +131,7 @@ class TestLipReadingEngineInput:
             engine._prepare_input(np.zeros((30, 100), dtype=np.float32))
 
     async def test_pads_short_sequences(self):
-        from sozia.inference.speech.lip_reading_engine import LipReadingEngine
+        from sozia.server.inference.speech.lip_reading_engine import LipReadingEngine
 
         engine = LipReadingEngine()
         engine._model = MagicMock()
@@ -142,7 +142,7 @@ class TestLipReadingEngineInput:
         assert length.item() == 10
 
     async def test_truncates_long_sequences(self):
-        from sozia.inference.speech.lip_reading_engine import LipReadingEngine
+        from sozia.server.inference.speech.lip_reading_engine import LipReadingEngine
 
         engine = LipReadingEngine()
         engine._model = MagicMock()
@@ -157,7 +157,7 @@ class TestLipReadingModel:
     """Smoke test the model architecture itself."""
 
     def test_forward_shape(self):
-        from sozia.inference.speech.lip_reading_engine import LipReadingModel
+        from sozia.server.inference.speech.lip_reading_engine import LipReadingModel
 
         model = LipReadingModel(
             input_dim=_FACE_DIM, hidden_dim=64, num_layers=1, vocab_size=32,
@@ -168,7 +168,7 @@ class TestLipReadingModel:
         assert out.shape == (2, 50, 32)
 
     def test_forward_without_lengths(self):
-        from sozia.inference.speech.lip_reading_engine import LipReadingModel
+        from sozia.server.inference.speech.lip_reading_engine import LipReadingModel
 
         model = LipReadingModel(
             input_dim=_FACE_DIM, hidden_dim=64, num_layers=1, vocab_size=32,

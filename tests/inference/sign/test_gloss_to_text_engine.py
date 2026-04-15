@@ -35,31 +35,31 @@ def _make_config(model_id: str = "gemma-9b-gloss-tr") -> ModelConfig:
 
 class TestTurkishUtils:
     def test_turkish_lower(self):
-        from sozia.inference.sign.gloss_to_text_engine import _turkish_lower
+        from sozia.server.inference.sign.gloss_to_text_engine import _turkish_lower
 
         assert _turkish_lower("İSTANBUL") == "istanbul"
         assert _turkish_lower("IŞIK") == "ışık"
 
     def test_turkish_capitalize(self):
-        from sozia.inference.sign.gloss_to_text_engine import _turkish_capitalize
+        from sozia.server.inference.sign.gloss_to_text_engine import _turkish_capitalize
 
         assert _turkish_capitalize("istanbul") == "İstanbul"
         assert _turkish_capitalize("ışık") == "Işık"
         assert _turkish_capitalize("") == ""
 
     def test_polish_turkish_adds_period(self):
-        from sozia.inference.sign.gloss_to_text_engine import _polish_turkish
+        from sozia.server.inference.sign.gloss_to_text_engine import _polish_turkish
 
         assert _polish_turkish("merhaba dünya") == "Merhaba dünya."
 
     def test_polish_turkish_capitalises_after_period(self):
-        from sozia.inference.sign.gloss_to_text_engine import _polish_turkish
+        from sozia.server.inference.sign.gloss_to_text_engine import _polish_turkish
 
         result = _polish_turkish("merhaba. nasılsın")
         assert result == "Merhaba. Nasılsın."
 
     def test_polish_turkish_empty(self):
-        from sozia.inference.sign.gloss_to_text_engine import _polish_turkish
+        from sozia.server.inference.sign.gloss_to_text_engine import _polish_turkish
 
         assert _polish_turkish("") == ""
         assert _polish_turkish("  ") == ""
@@ -67,20 +67,20 @@ class TestTurkishUtils:
 
 class TestFormatChat:
     def test_gemma_format(self):
-        from sozia.inference.sign.gloss_to_text_engine import _format_chat
+        from sozia.server.inference.sign.gloss_to_text_engine import _format_chat
 
         result = _format_chat("google/gemma-2-9b-it", "Translate:", "merhaba")
         assert "<start_of_turn>user" in result
         assert "Gloss: merhaba" in result
 
     def test_llama_format(self):
-        from sozia.inference.sign.gloss_to_text_engine import _format_chat
+        from sozia.server.inference.sign.gloss_to_text_engine import _format_chat
 
         result = _format_chat("meta-llama/llama-3", "Translate:", "merhaba")
         assert "<|begin_of_text|>" in result
 
     def test_chatml_format(self):
-        from sozia.inference.sign.gloss_to_text_engine import _format_chat
+        from sozia.server.inference.sign.gloss_to_text_engine import _format_chat
 
         result = _format_chat("trendyol/model", "Translate:", "merhaba")
         assert "<|im_start|>user" in result
@@ -93,14 +93,14 @@ class TestFormatChat:
 
 class TestGlossToTextEngineState:
     async def test_not_loaded_initially(self):
-        from sozia.inference.sign.gloss_to_text_engine import GlossToTextEngine
+        from sozia.server.inference.sign.gloss_to_text_engine import GlossToTextEngine
 
         engine = GlossToTextEngine()
         assert engine.is_loaded() is False
         assert engine.get_model_id() == ""
 
     async def test_unload_clears_state(self):
-        from sozia.inference.sign.gloss_to_text_engine import GlossToTextEngine
+        from sozia.server.inference.sign.gloss_to_text_engine import GlossToTextEngine
 
         engine = GlossToTextEngine()
         engine._model = MagicMock()
@@ -114,14 +114,14 @@ class TestGlossToTextEngineState:
 
 class TestGlossToTextEnginePredict:
     async def test_predict_raises_when_not_loaded(self):
-        from sozia.inference.sign.gloss_to_text_engine import GlossToTextEngine
+        from sozia.server.inference.sign.gloss_to_text_engine import GlossToTextEngine
 
         engine = GlossToTextEngine()
         with pytest.raises(ModelNotLoadedError):
             await engine.predict("MERHABA")
 
     async def test_predict_returns_modality_result(self):
-        from sozia.inference.sign.gloss_to_text_engine import GlossToTextEngine
+        from sozia.server.inference.sign.gloss_to_text_engine import GlossToTextEngine
 
         engine = GlossToTextEngine()
         engine._model_id = "gemma-9b-gloss-tr"
@@ -148,7 +148,7 @@ class TestGlossToTextEnginePredict:
         assert result.inference_latency_ms >= 0
 
     async def test_predict_empty_output_gives_zero_confidence(self):
-        from sozia.inference.sign.gloss_to_text_engine import GlossToTextEngine
+        from sozia.server.inference.sign.gloss_to_text_engine import GlossToTextEngine
 
         engine = GlossToTextEngine()
         engine._model_id = "gemma-9b-gloss-tr"

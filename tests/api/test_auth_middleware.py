@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from sozia.api.auth_middleware import AuthMiddleware
+from sozia.server.api.auth_middleware import AuthMiddleware
 
 
 # ---------------------------------------------------------------------------
