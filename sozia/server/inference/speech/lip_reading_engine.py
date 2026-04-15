@@ -1,8 +1,16 @@
 """LipReadingEngine — visual speech recognition from facial landmarks.
 
 Receives a sequence of 83-point facial landmark frames (extracted by
-MediaPipe Face Mesh on the client), runs them through a CNN/RNN encoder-
-decoder, and returns a ModalityResult with recognised text.
+MediaPipe Face Mesh on the client), runs them through a CNN-GRU word
+classifier, and returns a ModalityResult with the predicted word label.
+
+Architecture (word classifier, not CTC):
+    Conv1d temporal smoother → GRU encoder → last real-frame hidden state
+    → BN → ReLU → Dropout → Linear(num_classes)
+
+The model is trained offline on face landmarks from the TSL datasets
+(AUTSL / BosphorusSign22k) using weak supervision: sign class names
+(Turkish words) serve as word-level labels.
 
 In the speech pipeline this is the *secondary* (slower) modality: ASR emits
 PARTIAL immediately, lip-reading arrives later and the fusion layer produces
@@ -38,12 +46,14 @@ _FACE_FEATURE_DIM = 249
 
 
 class LipReadingModel(nn.Module):
-    """Lightweight CNN-GRU encoder with CTC-style linear head.
+    """CNN-GRU word classifier for lip-motion features.
 
     Architecture:
-        1-D Conv block (temporal smoothing) → GRU encoder → FC → output vocab
-    The model is intentionally small so that inference fits within 1200 ms on
-    CPU.  Weights are trained offline and loaded via ``state_dict``.
+        1-D Conv block (temporal smoothing) → GRU encoder
+        → last real-frame hidden state → classifier head (BN → ReLU → Dropout → Linear)
+
+    Output is ``(batch, num_classes)`` — one class prediction per input sequence.
+    Training uses cross-entropy with word-level labels from TSL sign class names.
     """
 
     def __init__(
@@ -51,7 +61,7 @@ class LipReadingModel(nn.Module):
         input_dim: int = _FACE_FEATURE_DIM,
         hidden_dim: int = 256,
         num_layers: int = 3,
-        vocab_size: int = 1024,
+        num_classes: int = 226,
         dropout: float = 0.3,
     ) -> None:
         super().__init__()
@@ -66,10 +76,14 @@ class LipReadingModel(nn.Module):
             hidden_size=hidden_dim,
             num_layers=num_layers,
             batch_first=True,
-            dropout=dropout if num_layers > 1 else 0,
-            bidirectional=True,
+            dropout=dropout if num_layers > 1 else 0.0,
         )
-        self.fc = nn.Linear(hidden_dim * 2, vocab_size)
+        self.head = nn.Sequential(
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, num_classes),
+        )
 
     def forward(
         self, x: torch.Tensor, lengths: torch.Tensor | None = None,
@@ -78,12 +92,14 @@ class LipReadingModel(nn.Module):
 
         Args:
             x: ``(batch, seq_len, input_dim)``
-            lengths: actual sequence lengths ``(batch,)``
+            lengths: Actual sequence lengths ``(batch,)``. When provided,
+                the last *real* frame's hidden state is used as the sequence
+                representation, avoiding zero-pad contamination.
 
         Returns:
-            Logits of shape ``(batch, seq_len, vocab_size)``.
+            Class logits of shape ``(batch, num_classes)``.
         """
-        # Conv expects (batch, channels, seq_len)
+        # Conv expects (batch, channels, seq_len).
         out = self.conv(x.transpose(1, 2)).transpose(1, 2)
 
         if lengths is not None:
@@ -93,21 +109,26 @@ class LipReadingModel(nn.Module):
             )
             packed_out, _ = self.gru(packed)
             out, _ = nn.utils.rnn.pad_packed_sequence(packed_out, batch_first=True)
+            # Index the last real frame for each sample in the batch.
+            idx = (lengths - 1).clamp(min=0).to(out.device)
+            last = out[torch.arange(out.size(0), device=out.device), idx]
         else:
             out, _ = self.gru(out)
+            last = out[:, -1, :]  # (batch, hidden_dim)
 
-        return self.fc(out)
+        return self.head(last)  # (batch, num_classes)
 
 
 class LipReadingEngine(InferenceEngine):
-    """InferenceEngine implementation for visual speech recognition.
+    """InferenceEngine implementation for word-level lip-motion classification.
 
     Expected ``ModelConfig.params`` keys (all optional):
         hidden_dim (int): GRU hidden size, default ``256``.
         num_layers (int): GRU layers, default ``3``.
-        vocab_size (int): Output vocabulary size, default ``1024``.
+        num_classes (int): Number of word classes, default ``226`` (AUTSL).
         max_seq_len (int): Max input frames, default ``150``.
-        vocab_path (str): Path to token→text vocabulary file.
+        vocab_path (str): Path to newline-delimited vocabulary file (class
+            index → word label, one word per line).
     """
 
     def __init__(self) -> None:
@@ -125,14 +146,14 @@ class LipReadingEngine(InferenceEngine):
         device = torch.device(config.device)
         hidden_dim = config.params.get("hidden_dim", 256)
         num_layers = config.params.get("num_layers", 3)
-        vocab_size = config.params.get("vocab_size", 1024)
+        num_classes = config.params.get("num_classes", 226)
         self._max_seq_len = config.params.get("max_seq_len", 150)
 
         model = LipReadingModel(
             input_dim=_FACE_FEATURE_DIM,
             hidden_dim=hidden_dim,
             num_layers=num_layers,
-            vocab_size=vocab_size,
+            num_classes=num_classes,
         )
 
         state_dict = await asyncio.to_thread(
@@ -160,12 +181,12 @@ class LipReadingEngine(InferenceEngine):
 
         Args:
             features: Numpy array of shape ``(T, 249)`` — T frames of 83
-                landmarks × 3 coordinates each. Alternatively ``(T, 83, 3)``
-                which is reshaped automatically.
+                landmarks × 3 coordinates each. Accepts ``(T, 83, 3)`` and
+                single-frame inputs ``(83, 3)`` which are reshaped automatically.
             timeout_ms: Maximum wall-clock time in ms (default 1200).
 
         Returns:
-            ModalityResult with recognised text and confidence.
+            ModalityResult with predicted word label and softmax confidence.
         """
         if self._model is None:
             raise ModelNotLoadedError("LipReadingEngine: no model loaded.")
@@ -184,7 +205,7 @@ class LipReadingEngine(InferenceEngine):
             )
 
         latency_ms = int((time.perf_counter() - start) * 1000)
-        text, confidence = self._decode_output(logits, length)
+        text, confidence = self._decode_output(logits)
 
         return ModalityResult(
             modality_type=ModalityType.LIP_READING,
@@ -215,12 +236,21 @@ class LipReadingEngine(InferenceEngine):
     def _prepare_input(
         self, features: np.ndarray,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Normalise input shape and convert to batched tensor."""
+        """Normalise input shape and convert to batched tensor.
+
+        Accepted input shapes:
+            ``(T, 249)``     — T frames already flattened
+            ``(T, 83, 3)``   — T frames as landmark arrays (reshaped to flat)
+            ``(83, 3)``      — single frame (expanded to ``(1, 249)``)
+        """
         arr = np.asarray(features, dtype=np.float32)
 
         if arr.ndim == 3:
             # (T, 83, 3) → (T, 249)
             arr = arr.reshape(arr.shape[0], -1)
+        elif arr.ndim == 2 and arr.shape[1] == 3:
+            # Single frame (83, 3) → (1, 249)
+            arr = arr.reshape(1, -1)
 
         if arr.ndim != 2 or arr.shape[1] != _FACE_FEATURE_DIM:
             raise ValueError(
@@ -253,41 +283,35 @@ class LipReadingEngine(InferenceEngine):
             return self._model(tensor, lengths=length)
 
     def _decode_output(
-        self, logits: torch.Tensor, length: torch.Tensor,
+        self, logits: torch.Tensor,
     ) -> tuple[str, float]:
-        """Greedy-decode logits into text and derive a confidence score."""
-        # logits: (1, seq_len, vocab_size)
-        probs = torch.softmax(logits[0], dim=-1)
-        pred_ids = torch.argmax(probs, dim=-1)  # (seq_len,)
-        max_probs = probs.gather(1, pred_ids.unsqueeze(-1)).squeeze(-1)
+        """Argmax-decode classifier logits into a word label and confidence.
 
-        actual_len = int(length[0].item())
-        pred_ids = pred_ids[:actual_len]
-        max_probs = max_probs[:actual_len]
+        Args:
+            logits: ``(1, num_classes)`` raw logits from the model.
 
-        # CTC blank-collapse: remove consecutive duplicates and blank (id=0).
-        collapsed: list[int] = []
-        conf_scores: list[float] = []
-        prev = -1
-        for i, tok_id in enumerate(pred_ids.tolist()):
-            if tok_id != 0 and tok_id != prev:
-                collapsed.append(tok_id)
-                conf_scores.append(max_probs[i].item())
-            prev = tok_id
+        Returns:
+            ``(text, confidence)`` where ``text`` is the predicted word
+            (or class index string when no vocab is loaded) and
+            ``confidence`` is the softmax probability at the predicted class.
+        """
+        # logits: (1, num_classes)
+        probs = torch.softmax(logits[0], dim=-1)  # (num_classes,)
+        class_idx = int(torch.argmax(probs).item())
+        confidence = float(probs[class_idx].item())
 
-        if self._vocab and collapsed:
-            text = " ".join(
-                self._vocab[tid] if tid < len(self._vocab) else f"<{tid}>"
-                for tid in collapsed
-            )
+        if self._vocab and class_idx < len(self._vocab):
+            text = self._vocab[class_idx]
         else:
-            text = " ".join(str(tid) for tid in collapsed)
+            text = str(class_idx)
 
-        confidence = float(np.mean(conf_scores)) if conf_scores else 0.0
         return text, max(0.0, min(1.0, confidence))
 
     @staticmethod
     def _load_vocab(path: str) -> list[str]:
-        """Load a newline-delimited vocabulary file."""
+        """Load a newline-delimited vocabulary file.
+
+        Line number = class index. Each line is the word label for that class.
+        """
         with open(path, encoding="utf-8") as f:
             return [line.strip() for line in f]
