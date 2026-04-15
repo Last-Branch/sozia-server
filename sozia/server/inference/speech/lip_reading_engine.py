@@ -86,7 +86,9 @@ class LipReadingModel(nn.Module):
         )
 
     def forward(
-        self, x: torch.Tensor, lengths: torch.Tensor | None = None,
+        self,
+        x: torch.Tensor,
+        lengths: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Forward pass.
 
@@ -104,8 +106,10 @@ class LipReadingModel(nn.Module):
 
         if lengths is not None:
             packed = nn.utils.rnn.pack_padded_sequence(
-                out, lengths.cpu().clamp(min=1),
-                batch_first=True, enforce_sorted=False,
+                out,
+                lengths.cpu().clamp(min=1),
+                batch_first=True,
+                enforce_sorted=False,
             )
             packed_out, _ = self.gru(packed)
             out, _ = nn.utils.rnn.pad_packed_sequence(packed_out, batch_first=True)
@@ -157,8 +161,10 @@ class LipReadingEngine(InferenceEngine):
         )
 
         state_dict = await asyncio.to_thread(
-            torch.load, config.weights_path,
-            map_location=device, weights_only=True,
+            torch.load,
+            config.weights_path,
+            map_location=device,
+            weights_only=True,
         )
         model.load_state_dict(state_dict)
         model.to(device)
@@ -234,7 +240,8 @@ class LipReadingEngine(InferenceEngine):
     # ------------------------------------------------------------------
 
     def _prepare_input(
-        self, features: np.ndarray,
+        self,
+        features: np.ndarray,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Normalise input shape and convert to batched tensor.
 
@@ -276,14 +283,17 @@ class LipReadingEngine(InferenceEngine):
         return tensor, length
 
     def _run_inference(
-        self, tensor: torch.Tensor, length: torch.Tensor,
+        self,
+        tensor: torch.Tensor,
+        length: torch.Tensor,
     ) -> torch.Tensor:
         """Synchronous forward pass — called inside ``to_thread``."""
         with torch.no_grad():
             return self._model(tensor, lengths=length)
 
     def _decode_output(
-        self, logits: torch.Tensor,
+        self,
+        logits: torch.Tensor,
     ) -> tuple[str, float]:
         """Argmax-decode classifier logits into a word label and confidence.
 

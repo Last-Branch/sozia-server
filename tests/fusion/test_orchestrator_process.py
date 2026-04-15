@@ -463,7 +463,11 @@ class TestProcessSpeech:
 
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, chunk, [_audio_health()], ModalityPath.SPEECH, sent.append,
+            _SESSION,
+            chunk,
+            [_audio_health()],
+            ModalityPath.SPEECH,
+            sent.append,
         )
 
         assert len(sent) >= 1
@@ -482,23 +486,35 @@ class TestProcessSpeech:
             chunk_duration_ms=500,
         )
         asr = _StubEngine(_result(ModalityType.ASR, "hello", 0.75), model_id="w")
-        lip = _StubEngine(_result(ModalityType.LIP_READING, "hello", 0.80), model_id="l")
+        lip = _StubEngine(
+            _result(ModalityType.LIP_READING, "hello", 0.80), model_id="l"
+        )
         asr._loaded = True
         lip._loaded = True
 
         orch = FusionOrchestrator()
         orch.register_policy(ModalityPath.SPEECH, SpeechFusionPolicy())
         orch.register_engine(ModalityPath.SPEECH, ModalityType.ASR, asr, _cfg("w"))
-        orch.register_engine(ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l"))
+        orch.register_engine(
+            ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l")
+        )
 
         # Prime face cache.
         await orch.process(
-            _SESSION, _landmark_frame(), [_video_health()], ModalityPath.SPEECH, lambda _: None,
+            _SESSION,
+            _landmark_frame(),
+            [_video_health()],
+            ModalityPath.SPEECH,
+            lambda _: None,
         )
 
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, chunk, [_audio_health()], ModalityPath.SPEECH, sent.append,
+            _SESSION,
+            chunk,
+            [_audio_health()],
+            ModalityPath.SPEECH,
+            sent.append,
         )
 
         assert any(s.status == SegmentStatus.FINAL for s in sent)

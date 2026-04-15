@@ -52,7 +52,10 @@ class TestLipReadingModel:
         from sozia.server.inference.speech.lip_reading_engine import LipReadingModel
 
         model = LipReadingModel(
-            input_dim=_FACE_DIM, hidden_dim=64, num_layers=1, num_classes=_NUM_CLASSES,
+            input_dim=_FACE_DIM,
+            hidden_dim=64,
+            num_layers=1,
+            num_classes=_NUM_CLASSES,
         )
         x = torch.randn(2, 50, _FACE_DIM)
         lengths = torch.tensor([50, 30])
@@ -64,7 +67,10 @@ class TestLipReadingModel:
         from sozia.server.inference.speech.lip_reading_engine import LipReadingModel
 
         model = LipReadingModel(
-            input_dim=_FACE_DIM, hidden_dim=64, num_layers=1, num_classes=_NUM_CLASSES,
+            input_dim=_FACE_DIM,
+            hidden_dim=64,
+            num_layers=1,
+            num_classes=_NUM_CLASSES,
         )
         model.eval()
         x = torch.randn(1, 50, _FACE_DIM)
@@ -76,7 +82,10 @@ class TestLipReadingModel:
         from sozia.server.inference.speech.lip_reading_engine import LipReadingModel
 
         model = LipReadingModel(
-            input_dim=_FACE_DIM, hidden_dim=64, num_layers=1, num_classes=_NUM_CLASSES,
+            input_dim=_FACE_DIM,
+            hidden_dim=64,
+            num_layers=1,
+            num_classes=_NUM_CLASSES,
         )
         model.eval()
         x = torch.randn(1, 30, _FACE_DIM)
@@ -105,7 +114,10 @@ class TestLipReadingEngineState:
         )
 
         model = LipReadingModel(
-            input_dim=_FACE_DIM, hidden_dim=64, num_layers=1, num_classes=_NUM_CLASSES,
+            input_dim=_FACE_DIM,
+            hidden_dim=64,
+            num_layers=1,
+            num_classes=_NUM_CLASSES,
         )
         state_dict = model.state_dict()
 
@@ -140,7 +152,10 @@ class TestLipReadingEnginePredict:
         )
 
         model = LipReadingModel(
-            input_dim=_FACE_DIM, hidden_dim=64, num_layers=1, num_classes=_NUM_CLASSES,
+            input_dim=_FACE_DIM,
+            hidden_dim=64,
+            num_layers=1,
+            num_classes=_NUM_CLASSES,
         )
         state_dict = model.state_dict()
 
@@ -161,7 +176,10 @@ class TestLipReadingEnginePredict:
         )
 
         model = LipReadingModel(
-            input_dim=_FACE_DIM, hidden_dim=64, num_layers=1, num_classes=_NUM_CLASSES,
+            input_dim=_FACE_DIM,
+            hidden_dim=64,
+            num_layers=1,
+            num_classes=_NUM_CLASSES,
         )
         state_dict = model.state_dict()
 
@@ -180,7 +198,10 @@ class TestLipReadingEnginePredict:
         )
 
         model = LipReadingModel(
-            input_dim=_FACE_DIM, hidden_dim=64, num_layers=1, num_classes=_NUM_CLASSES,
+            input_dim=_FACE_DIM,
+            hidden_dim=64,
+            num_layers=1,
+            num_classes=_NUM_CLASSES,
         )
         state_dict = model.state_dict()
 
@@ -201,7 +222,10 @@ class TestLipReadingEnginePredict:
         )
 
         model = LipReadingModel(
-            input_dim=_FACE_DIM, hidden_dim=64, num_layers=1, num_classes=_NUM_CLASSES,
+            input_dim=_FACE_DIM,
+            hidden_dim=64,
+            num_layers=1,
+            num_classes=_NUM_CLASSES,
         )
         state_dict = model.state_dict()
 
