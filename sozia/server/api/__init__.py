@@ -6,8 +6,8 @@ Public surface:
     WebSocketGateway  — Manages all active sessions.
 """
 
-from sozia.api.auth_middleware import AuthMiddleware
-from sozia.api.gateway import WebSocketGateway
-from sozia.api.session_handler import SessionHandler
+from sozia.server.api.auth_middleware import AuthMiddleware
+from sozia.server.api.gateway import WebSocketGateway
+from sozia.server.api.session_handler import SessionHandler
 
 __all__ = ["AuthMiddleware", "SessionHandler", "WebSocketGateway"]

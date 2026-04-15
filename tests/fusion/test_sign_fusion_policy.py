@@ -8,7 +8,7 @@ from sozia.common.models import (
     PipelineHealth,
     SegmentStatus,
 )
-from sozia.fusion.sign_fusion_policy import SignFusionPolicy
+from sozia.server.fusion.sign_fusion_policy import SignFusionPolicy
 
 # ---------------------------------------------------------------------------
 # Helpers

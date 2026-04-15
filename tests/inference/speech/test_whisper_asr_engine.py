@@ -47,14 +47,14 @@ class TestWhisperAsrEngineState:
     """State management: is_loaded, get_model_id, load/unload lifecycle."""
 
     async def test_not_loaded_initially(self):
-        from sozia.inference.speech.whisper_asr_engine import WhisperAsrEngine
+        from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
 
         engine = WhisperAsrEngine()
         assert engine.is_loaded() is False
         assert engine.get_model_id() == ""
 
     async def test_load_sets_state(self):
-        from sozia.inference.speech.whisper_asr_engine import WhisperAsrEngine
+        from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
 
         mock_whisper = MagicMock()
         mock_whisper.load_model.return_value = MagicMock()
@@ -65,7 +65,7 @@ class TestWhisperAsrEngineState:
             assert engine.get_model_id() == "whisper-small-tr"
 
     async def test_unload_clears_state(self):
-        from sozia.inference.speech.whisper_asr_engine import WhisperAsrEngine
+        from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
 
         mock_whisper = MagicMock()
         mock_whisper.load_model.return_value = MagicMock()
@@ -81,14 +81,14 @@ class TestWhisperAsrEnginePredict:
     """Predict behaviour with mocked whisper backend."""
 
     async def test_predict_raises_when_not_loaded(self):
-        from sozia.inference.speech.whisper_asr_engine import WhisperAsrEngine
+        from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
 
         engine = WhisperAsrEngine()
         with pytest.raises(ModelNotLoadedError):
             await engine.predict(np.zeros((80, 100), dtype=np.float32))
 
     async def test_predict_returns_modality_result(self):
-        from sozia.inference.speech.whisper_asr_engine import WhisperAsrEngine
+        from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
 
         mock_whisper = MagicMock()
         mock_whisper.load_model.return_value = MagicMock()
@@ -107,7 +107,7 @@ class TestWhisperAsrEnginePredict:
         assert result.inference_latency_ms >= 0
 
     async def test_predict_handles_list_decode_result(self):
-        from sozia.inference.speech.whisper_asr_engine import WhisperAsrEngine
+        from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
 
         mock_whisper = MagicMock()
         mock_whisper.load_model.return_value = MagicMock()
@@ -125,7 +125,7 @@ class TestWhisperAsrEngineMelPrep:
     """Feature preparation edge cases."""
 
     async def test_transpose_t_by_80_input(self):
-        from sozia.inference.speech.whisper_asr_engine import WhisperAsrEngine
+        from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
 
         engine = WhisperAsrEngine()
         engine._model = MagicMock()
@@ -136,7 +136,7 @@ class TestWhisperAsrEngineMelPrep:
         assert mel.shape == (80, 3000)
 
     async def test_pads_short_mel_bins(self):
-        from sozia.inference.speech.whisper_asr_engine import WhisperAsrEngine
+        from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
 
         engine = WhisperAsrEngine()
         engine._model = MagicMock()
@@ -147,7 +147,7 @@ class TestWhisperAsrEngineMelPrep:
         assert mel.shape == (80, 3000)
 
     async def test_rejects_1d_input(self):
-        from sozia.inference.speech.whisper_asr_engine import WhisperAsrEngine
+        from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
 
         engine = WhisperAsrEngine()
         engine._model = MagicMock()
@@ -160,7 +160,7 @@ class TestWhisperAsrEngineConfidence:
     """Confidence extraction from log-probabilities."""
 
     def test_high_logprob_gives_high_confidence(self):
-        from sozia.inference.speech.whisper_asr_engine import WhisperAsrEngine
+        from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
 
         c = WhisperAsrEngine._extract_confidence(
             {"avg_logprob": -0.1, "no_speech_prob": 0.0}
@@ -168,7 +168,7 @@ class TestWhisperAsrEngineConfidence:
         assert c > 0.8
 
     def test_low_logprob_gives_low_confidence(self):
-        from sozia.inference.speech.whisper_asr_engine import WhisperAsrEngine
+        from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
 
         c = WhisperAsrEngine._extract_confidence(
             {"avg_logprob": -3.0, "no_speech_prob": 0.0}
@@ -176,7 +176,7 @@ class TestWhisperAsrEngineConfidence:
         assert c < 0.1
 
     def test_high_no_speech_penalises(self):
-        from sozia.inference.speech.whisper_asr_engine import WhisperAsrEngine
+        from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
 
         c = WhisperAsrEngine._extract_confidence(
             {"avg_logprob": -0.1, "no_speech_prob": 0.9}

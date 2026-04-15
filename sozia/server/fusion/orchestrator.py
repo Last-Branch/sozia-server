@@ -31,8 +31,8 @@ from sozia.common.models import (
     SegmentStatus,
     TranscriptSegment,
 )
-from sozia.fusion.degraded_mode_handler import DegradedModeHandler
-from sozia.fusion.frame_accumulator import FrameAccumulator
+from sozia.server.fusion.degraded_mode_handler import DegradedModeHandler
+from sozia.server.fusion.frame_accumulator import FrameAccumulator
 
 if TYPE_CHECKING:
     from sozia.common.interfaces import FusionStrategy, InferenceEngine

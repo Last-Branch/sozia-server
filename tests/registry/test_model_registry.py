@@ -12,8 +12,8 @@ import pytest
 
 from sozia.common import InferenceEngine, ModelConfig, ModelNotLoadedError
 from sozia.common.models import ModalityResult, ModalityType
-from sozia.registry import EngineClassNotRegisteredError, ModelRegistry
-from sozia.registry.model_registry import reset_instance
+from sozia.server.registry import EngineClassNotRegisteredError, ModelRegistry
+from sozia.server.registry.model_registry import reset_instance
 
 
 # ===========================================================================
@@ -323,27 +323,27 @@ class TestIsLoadedAndListLoaded:
 
 class TestDependencyRules:
     def test_importing_registry_does_not_pull_inference_or_client(self):
-        """Rule R2: sozia.registry must not import sozia.inference.* or sozia.client.*."""
+        """Rule R2: sozia.server.registry must not import sozia.server.inference.* or sozia.client.*."""
         import importlib
 
-        # Evict sozia.registry so the import below is a genuine cold load.
+        # Evict sozia.server.registry so the import below is a genuine cold load.
         # Without this, the test only checks whatever is already in sys.modules
-        # (which includes sozia.inference.* after inference tests run first).
+        # (which includes sozia.server.inference.* after inference tests run first).
         evicted = {
             k: sys.modules.pop(k)
             for k in list(sys.modules)
-            if k.startswith("sozia.registry")
+            if k.startswith("sozia.server.registry")
         }
         before = set(sys.modules.keys())
         try:
-            importlib.import_module("sozia.registry")
+            importlib.import_module("sozia.server.registry")
             added = set(sys.modules.keys()) - before
         finally:
             sys.modules.update(evicted)
 
-        forbidden_prefixes = ("sozia.inference", "sozia.client")
+        forbidden_prefixes = ("sozia.server.inference", "sozia.client")
         for mod_name in added:
             for prefix in forbidden_prefixes:
                 assert not mod_name.startswith(prefix), (
-                    f"Forbidden module '{mod_name}' was pulled in by sozia.registry"
+                    f"Forbidden module '{mod_name}' was pulled in by sozia.server.registry"
                 )

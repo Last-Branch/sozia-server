@@ -8,7 +8,7 @@ from sozia.common.models import (
     PipelineHealth,
     SegmentStatus,
 )
-from sozia.fusion.degraded_mode_handler import (
+from sozia.server.fusion.degraded_mode_handler import (
     DegradedModeHandler,
     DegradedStatus,
 )

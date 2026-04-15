@@ -8,7 +8,7 @@ from sozia.common.models import (
     PipelineHealth,
     SegmentStatus,
 )
-from sozia.fusion.speech_fusion_policy import SpeechFusionPolicy
+from sozia.server.fusion.speech_fusion_policy import SpeechFusionPolicy
 
 # ---------------------------------------------------------------------------
 # Helpers

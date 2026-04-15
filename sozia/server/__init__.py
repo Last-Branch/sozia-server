@@ -19,18 +19,18 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI, WebSocket
 
-from sozia.api.auth_middleware import AuthMiddleware
-from sozia.api.gateway import WebSocketGateway
+from sozia.server.api.auth_middleware import AuthMiddleware
+from sozia.server.api.gateway import WebSocketGateway
 from sozia.common.models import ModalityPath, ModalityType, ModelConfig
-from sozia.fusion.degraded_mode_handler import DegradedModeHandler
-from sozia.fusion.orchestrator import FusionOrchestrator
-from sozia.fusion.sign_fusion_policy import SignFusionPolicy
-from sozia.fusion.speech_fusion_policy import SpeechFusionPolicy
-from sozia.inference.sign.gloss_to_text_engine import GlossToTextEngine
-from sozia.inference.sign.tsl_recognition_engine import TslRecognitionEngine
-from sozia.inference.speech.lip_reading_engine import LipReadingEngine
-from sozia.inference.speech.whisper_asr_engine import WhisperAsrEngine
-from sozia.registry.model_registry import ModelRegistry
+from sozia.server.fusion.degraded_mode_handler import DegradedModeHandler
+from sozia.server.fusion.orchestrator import FusionOrchestrator
+from sozia.server.fusion.sign_fusion_policy import SignFusionPolicy
+from sozia.server.fusion.speech_fusion_policy import SpeechFusionPolicy
+from sozia.server.inference.sign.gloss_to_text_engine import GlossToTextEngine
+from sozia.server.inference.sign.tsl_recognition_engine import TslRecognitionEngine
+from sozia.server.inference.speech.lip_reading_engine import LipReadingEngine
+from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
+from sozia.server.registry.model_registry import ModelRegistry
 
 logger = logging.getLogger(__name__)
 

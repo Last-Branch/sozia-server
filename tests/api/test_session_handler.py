@@ -17,7 +17,7 @@ from sozia.common.models import (
     SegmentStatus,
     TranscriptSegment,
 )
-from sozia.api.session_handler import SessionHandler
+from sozia.server.api.session_handler import SessionHandler
 
 
 # ---------------------------------------------------------------------------

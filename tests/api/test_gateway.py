@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
-from sozia.api.auth_middleware import AuthMiddleware
-from sozia.api.gateway import WebSocketGateway
+from sozia.server.api.auth_middleware import AuthMiddleware
+from sozia.server.api.gateway import WebSocketGateway
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +76,7 @@ class TestOnConnectTimeout:
         ws.send_text = AsyncMock()
         ws.close = AsyncMock()
         with patch(
-            "sozia.api.gateway.asyncio.wait_for", side_effect=asyncio.TimeoutError
+            "sozia.server.api.gateway.asyncio.wait_for", side_effect=asyncio.TimeoutError
         ):
             await gw.on_connect(ws)
         ws.close.assert_awaited_once()

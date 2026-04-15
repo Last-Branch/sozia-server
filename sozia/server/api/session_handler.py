@@ -28,7 +28,7 @@ from sozia.common.models import (
 if TYPE_CHECKING:
     from fastapi import WebSocket
 
-    from sozia.fusion.orchestrator import FusionOrchestrator
+    from sozia.server.fusion.orchestrator import FusionOrchestrator
 
 
 class SessionHandler:
