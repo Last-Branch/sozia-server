@@ -444,6 +444,68 @@ class TestProcessSpeech:
         )
         assert sent == []
 
+    async def test_segments_carry_timestamp_from_audio_chunk(self):
+        """Orchestrator stamps timestamp_ms/duration_ms from AudioFeatureChunk."""
+        chunk = AudioFeatureChunk(
+            session_id=_SESSION,
+            timestamp_ms=5000,
+            features=[[0.1, 0.2]] * 10,
+            feature_type="mfcc",
+            sample_rate_hz=16000,
+            chunk_duration_ms=750,
+        )
+        asr = _StubEngine(_result(ModalityType.ASR, "test", 0.85), model_id="w")
+        asr._loaded = True
+
+        orch = FusionOrchestrator()
+        orch.register_policy(ModalityPath.SPEECH, SpeechFusionPolicy())
+        orch.register_engine(ModalityPath.SPEECH, ModalityType.ASR, asr, _cfg("w"))
+
+        sent: list[TranscriptSegment] = []
+        await orch.process(
+            _SESSION, chunk, [_audio_health()], ModalityPath.SPEECH, sent.append,
+        )
+
+        assert len(sent) >= 1
+        for seg in sent:
+            assert seg.timestamp_ms == 5000
+            assert seg.duration_ms == 750
+
+    async def test_lip_result_also_carries_audio_chunk_timing(self):
+        """Both ASR and LipReading results get stamped with the same AudioFeatureChunk timing."""
+        chunk = AudioFeatureChunk(
+            session_id=_SESSION,
+            timestamp_ms=3000,
+            features=[[0.1]] * 5,
+            feature_type="mfcc",
+            sample_rate_hz=16000,
+            chunk_duration_ms=500,
+        )
+        asr = _StubEngine(_result(ModalityType.ASR, "hello", 0.75), model_id="w")
+        lip = _StubEngine(_result(ModalityType.LIP_READING, "hello", 0.80), model_id="l")
+        asr._loaded = True
+        lip._loaded = True
+
+        orch = FusionOrchestrator()
+        orch.register_policy(ModalityPath.SPEECH, SpeechFusionPolicy())
+        orch.register_engine(ModalityPath.SPEECH, ModalityType.ASR, asr, _cfg("w"))
+        orch.register_engine(ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l"))
+
+        # Prime face cache.
+        await orch.process(
+            _SESSION, _landmark_frame(), [_video_health()], ModalityPath.SPEECH, lambda _: None,
+        )
+
+        sent: list[TranscriptSegment] = []
+        await orch.process(
+            _SESSION, chunk, [_audio_health()], ModalityPath.SPEECH, sent.append,
+        )
+
+        assert any(s.status == SegmentStatus.FINAL for s in sent)
+        for seg in sent:
+            assert seg.timestamp_ms == 3000
+            assert seg.duration_ms == 500
+
 
 # ---------------------------------------------------------------------------
 # process() — Path B (SIGN)
