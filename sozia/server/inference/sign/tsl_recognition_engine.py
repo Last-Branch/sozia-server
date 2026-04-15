@@ -179,7 +179,7 @@ class TslRecognitionEngine(InferenceEngine):
         # Optional missing-landmark interpolation.
         if self._apply_interpolation and arr.shape[1] == self._feature_dim:
             try:
-                from sozia.inference.sign._interpolation import (
+                from sozia.server.inference.sign._interpolation import (
                     interpolate_missing_keypoints,
                 )
 
@@ -330,7 +330,7 @@ def _build_gru_model(
     dropout: float = 0.4,
 ) -> nn.Module:
     """Construct an ActionGRU-compatible model for inference."""
-    from sozia.inference.sign._gru_model import ActionGRU
+    from sozia.server.inference.sign._gru_model import ActionGRU
 
     return ActionGRU(
         input_size=input_size,

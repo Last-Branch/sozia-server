@@ -21,8 +21,8 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from starlette.websockets import WebSocketDisconnect
 
-from sozia.api.auth_middleware import AuthMiddleware
-from sozia.api.session_handler import SessionHandler
+from sozia.server.api.auth_middleware import AuthMiddleware
+from sozia.server.api.session_handler import SessionHandler
 from sozia.common.models import (
     ModalityPath,
     SessionState,
@@ -32,7 +32,7 @@ from sozia.common.models import (
 if TYPE_CHECKING:
     from fastapi import WebSocket
 
-    from sozia.fusion.orchestrator import FusionOrchestrator
+    from sozia.server.fusion.orchestrator import FusionOrchestrator
 
 logger = logging.getLogger(__name__)
 
