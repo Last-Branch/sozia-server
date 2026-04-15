@@ -13,6 +13,7 @@ it only touches the ``InferenceEngine`` interface (``load_model``,
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import time
 import uuid
 from typing import TYPE_CHECKING, Awaitable, Callable
@@ -252,8 +253,12 @@ class FusionOrchestrator:
             if lip_entry is None or face_np is None:
                 return None
             lip_engine, _ = lip_entry
+            # _face_cache stores the latest single frame as (83, 3).
+            # Expand to (1, 249) so LipReadingEngine receives a valid sequence.
+            # DEV-07: MVP — single-frame sequence; replace with temporal buffer later.
+            face_seq = face_np.reshape(1, -1) if face_np.ndim == 2 else face_np
             try:
-                return await lip_engine.predict(face_np)
+                return await lip_engine.predict(face_seq)
             except InferenceTimeoutError:
                 return None
 
@@ -261,6 +266,21 @@ class FusionOrchestrator:
 
         if asr_result is None:
             return  # ASR timed out or missing — nothing to emit.
+
+        # Stamp the session-timeline position from the AudioFeatureChunk.
+        # Engines return timestamp_ms=0 / duration_ms=0 (they have no timeline context);
+        # the orchestrator is the correct layer to fill this in.
+        asr_result = dataclasses.replace(
+            asr_result,
+            timestamp_ms=features.timestamp_ms,
+            duration_ms=features.chunk_duration_ms,
+        )
+        if lip_result is not None:
+            lip_result = dataclasses.replace(
+                lip_result,
+                timestamp_ms=features.timestamp_ms,
+                duration_ms=features.chunk_duration_ms,
+            )
 
         results = [asr_result]
         if lip_result is not None:
