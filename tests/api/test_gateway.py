@@ -76,7 +76,8 @@ class TestOnConnectTimeout:
         ws.send_text = AsyncMock()
         ws.close = AsyncMock()
         with patch(
-            "sozia.server.api.gateway.asyncio.wait_for", side_effect=asyncio.TimeoutError
+            "sozia.server.api.gateway.asyncio.wait_for",
+            side_effect=asyncio.TimeoutError,
         ):
             await gw.on_connect(ws)
         ws.close.assert_awaited_once()
@@ -326,3 +327,34 @@ class TestStatusMessages:
 
         types_sent = [json.loads(t).get("state") for t in sent_texts]
         assert "RUNNING" in types_sent
+
+    async def test_ready_message_sent_after_running_status(self) -> None:
+        auth = AuthMiddleware(api_key=_KEY)
+        sent_texts: list[str] = []
+
+        orch = AsyncMock()
+        orch.warm_up = AsyncMock()
+        orch.cool_down = AsyncMock()
+        orch.process = AsyncMock()
+
+        gw = WebSocketGateway(auth=auth, orchestrator_factory=lambda *_: orch)
+        ws = _make_ws([_valid_session_init(), {"type": "session_end"}])
+
+        import json
+
+        ws.send_text = AsyncMock(side_effect=lambda t: sent_texts.append(t))
+
+        await gw.on_connect(ws)
+
+        types_sent = [json.loads(t).get("type") for t in sent_texts]
+        assert "ready" in types_sent
+        # ready must come after RUNNING status
+        running_idx = next(
+            i
+            for i, t in enumerate(sent_texts)
+            if json.loads(t).get("state") == "RUNNING"
+        )
+        ready_idx = next(
+            i for i, t in enumerate(sent_texts) if json.loads(t).get("type") == "ready"
+        )
+        assert ready_idx == running_idx + 1

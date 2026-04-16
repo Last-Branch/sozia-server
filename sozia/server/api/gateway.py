@@ -135,6 +135,7 @@ class WebSocketGateway:
             self.active_sessions[session_id] = handler
 
         await self._send_status(websocket, session_id, SessionState.RUNNING)
+        await websocket.send_text('{"type": "ready"}')
 
         try:
             await handler.receive_loop()
