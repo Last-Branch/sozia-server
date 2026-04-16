@@ -13,6 +13,7 @@ it only touches the ``InferenceEngine`` interface (``load_model``,
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import time
 import uuid
 from typing import TYPE_CHECKING, Awaitable, Callable
@@ -261,6 +262,21 @@ class FusionOrchestrator:
 
         if asr_result is None:
             return  # ASR timed out or missing — nothing to emit.
+
+        # Stamp the session-timeline position from the AudioFeatureChunk.
+        # Engines return timestamp_ms=0 / duration_ms=0 (they have no timeline context);
+        # the orchestrator is the correct layer to fill this in.
+        asr_result = dataclasses.replace(
+            asr_result,
+            timestamp_ms=features.timestamp_ms,
+            duration_ms=features.chunk_duration_ms,
+        )
+        if lip_result is not None:
+            lip_result = dataclasses.replace(
+                lip_result,
+                timestamp_ms=features.timestamp_ms,
+                duration_ms=features.chunk_duration_ms,
+            )
 
         results = [asr_result]
         if lip_result is not None:
