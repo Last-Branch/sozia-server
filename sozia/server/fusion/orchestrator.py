@@ -253,12 +253,8 @@ class FusionOrchestrator:
             if lip_entry is None or face_np is None:
                 return None
             lip_engine, _ = lip_entry
-            # _face_cache stores the latest single frame as (83, 3).
-            # Expand to (1, 249) so LipReadingEngine receives a valid sequence.
-            # DEV-07: MVP — single-frame sequence; replace with temporal buffer later.
-            face_seq = face_np.reshape(1, -1) if face_np.ndim == 2 else face_np
             try:
-                return await lip_engine.predict(face_seq)
+                return await lip_engine.predict(face_np)
             except InferenceTimeoutError:
                 return None
 

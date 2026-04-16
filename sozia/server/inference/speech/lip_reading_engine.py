@@ -255,7 +255,7 @@ class LipReadingEngine(InferenceEngine):
         if arr.ndim == 3:
             # (T, 83, 3) → (T, 249)
             arr = arr.reshape(arr.shape[0], -1)
-        elif arr.ndim == 2 and arr.shape[1] == 3:
+        elif arr.shape == (83, 3):
             # Single frame (83, 3) → (1, 249)
             arr = arr.reshape(1, -1)
 
