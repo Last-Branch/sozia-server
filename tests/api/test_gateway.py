@@ -76,7 +76,8 @@ class TestOnConnectTimeout:
         ws.send_text = AsyncMock()
         ws.close = AsyncMock()
         with patch(
-            "sozia.server.api.gateway.asyncio.wait_for", side_effect=asyncio.TimeoutError
+            "sozia.server.api.gateway.asyncio.wait_for",
+            side_effect=asyncio.TimeoutError,
         ):
             await gw.on_connect(ws)
         ws.close.assert_awaited_once()
@@ -349,7 +350,11 @@ class TestStatusMessages:
         assert "ready" in types_sent
         # ready must come after RUNNING status
         running_idx = next(
-            i for i, t in enumerate(sent_texts) if json.loads(t).get("state") == "RUNNING"
+            i
+            for i, t in enumerate(sent_texts)
+            if json.loads(t).get("state") == "RUNNING"
         )
-        ready_idx = next(i for i, t in enumerate(sent_texts) if json.loads(t).get("type") == "ready")
+        ready_idx = next(
+            i for i, t in enumerate(sent_texts) if json.loads(t).get("type") == "ready"
+        )
         assert ready_idx == running_idx + 1
