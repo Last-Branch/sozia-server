@@ -16,13 +16,13 @@ from __future__ import annotations
 import numpy as np
 
 # log10-mel floor for speech detection. Client sends Math.log10(energy + 1e-10);
-# speech peaks above −1, background noise stays below −3. -2.0 sits in the gap
-# and prevents weak-signal flushes that cause Whisper hallucinations.
-_SPEECH_ENERGY_THRESHOLD: float = -2.0
+# real speech peaks at +1 to +3, background noise stays below −1.
+_SPEECH_ENERGY_THRESHOLD: float = -1.0
 
-# Ignore silence flushes shorter than this — avoids firing on a single quiet
-# frame in the middle of continuous speech.
-_MIN_FLUSH_FRAMES: int = 50  # 500 ms at 100 Hz
+# Minimum accumulated frames before a silence flush is honoured. At 100 Hz this
+# is 1.5 s — long enough that a single loud transient won't trigger ASR, but
+# short enough to capture brief utterances like "Benim adım Mehmet."
+_MIN_FLUSH_FRAMES: int = 150  # 1500 ms at 100 Hz
 
 
 class MelAccumulator:
