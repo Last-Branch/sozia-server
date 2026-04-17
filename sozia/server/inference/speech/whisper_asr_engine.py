@@ -254,6 +254,7 @@ class WhisperAsrEngine(InferenceEngine):
                 num_beams=self._num_beams,
                 no_repeat_ngram_size=3,
                 return_dict_in_generate=True,
+                output_scores=True,
             )
             text = self._processor.tokenizer.batch_decode(
                 output.sequences, skip_special_tokens=True
