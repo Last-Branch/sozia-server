@@ -289,12 +289,20 @@ class TestProcessSpeech:
         # Lip-reading fires on every chunk when face is cached → PARTIAL.
         orch = _make_orchestrator(with_speech=True)
         await orch.process(
-            _SESSION, _landmark_frame(), [_video_health()], ModalityPath.SPEECH, lambda _: None
+            _SESSION,
+            _landmark_frame(),
+            [_video_health()],
+            ModalityPath.SPEECH,
+            lambda _: None,
         )
 
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _audio_chunk(), [_audio_health()], ModalityPath.SPEECH, sent.append
+            _SESSION,
+            _audio_chunk(),
+            [_audio_health()],
+            ModalityPath.SPEECH,
+            sent.append,
         )
 
         assert len(sent) >= 1
@@ -319,12 +327,20 @@ class TestProcessSpeech:
 
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _landmark_frame(), [_video_health()], ModalityPath.SPEECH, sent.append
+            _SESSION,
+            _landmark_frame(),
+            [_video_health()],
+            ModalityPath.SPEECH,
+            sent.append,
         )
         assert sent == []  # face caching only
 
         await orch.process(
-            _SESSION, _audio_chunk(), [_audio_health()], ModalityPath.SPEECH, sent.append
+            _SESSION,
+            _audio_chunk(),
+            [_audio_health()],
+            ModalityPath.SPEECH,
+            sent.append,
         )
         assert any(s.status == SegmentStatus.FINAL for s in sent)
 
@@ -345,7 +361,11 @@ class TestProcessSpeech:
 
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _audio_chunk(), [_audio_health()], ModalityPath.SPEECH, sent.append
+            _SESSION,
+            _audio_chunk(),
+            [_audio_health()],
+            ModalityPath.SPEECH,
+            sent.append,
         )
         # Lip-reading skipped (no face cache). ASR fires as FINAL from accumulator.
         assert len(sent) == 1
@@ -385,12 +405,20 @@ class TestProcessSpeech:
         )
 
         await orch.process(
-            _SESSION, _landmark_frame(), [_video_health()], ModalityPath.SPEECH, lambda s: None
+            _SESSION,
+            _landmark_frame(),
+            [_video_health()],
+            ModalityPath.SPEECH,
+            lambda s: None,
         )
 
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _audio_chunk(), [_audio_health()], ModalityPath.SPEECH, sent.append
+            _SESSION,
+            _audio_chunk(),
+            [_audio_health()],
+            ModalityPath.SPEECH,
+            sent.append,
         )
         assert len(sent) == 1
         assert sent[0].status == SegmentStatus.FINAL
@@ -446,7 +474,9 @@ class TestProcessSpeech:
         orch.register_engine(ModalityPath.SPEECH, ModalityType.ASR, asr, _cfg("w"))
 
         sent: list[TranscriptSegment] = []
-        await orch.process(_SESSION, chunk, [_audio_health()], ModalityPath.SPEECH, sent.append)
+        await orch.process(
+            _SESSION, chunk, [_audio_health()], ModalityPath.SPEECH, sent.append
+        )
 
         assert len(sent) >= 1
         for seg in sent:
@@ -463,19 +493,29 @@ class TestProcessSpeech:
             sample_rate_hz=16000,
             chunk_duration_ms=500,
         )
-        lip = _StubEngine(_result(ModalityType.LIP_READING, "hello", 0.80), model_id="l")
+        lip = _StubEngine(
+            _result(ModalityType.LIP_READING, "hello", 0.80), model_id="l"
+        )
         lip._loaded = True
 
         orch = FusionOrchestrator()
         orch.register_policy(ModalityPath.SPEECH, SpeechFusionPolicy())
-        orch.register_engine(ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l"))
+        orch.register_engine(
+            ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l")
+        )
 
         await orch.process(
-            _SESSION, _landmark_frame(), [_video_health()], ModalityPath.SPEECH, lambda _: None
+            _SESSION,
+            _landmark_frame(),
+            [_video_health()],
+            ModalityPath.SPEECH,
+            lambda _: None,
         )
 
         sent: list[TranscriptSegment] = []
-        await orch.process(_SESSION, chunk, [_audio_health()], ModalityPath.SPEECH, sent.append)
+        await orch.process(
+            _SESSION, chunk, [_audio_health()], ModalityPath.SPEECH, sent.append
+        )
 
         assert len(sent) == 1
         assert sent[0].timestamp_ms == 3000

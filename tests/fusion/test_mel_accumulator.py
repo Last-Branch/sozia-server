@@ -9,6 +9,7 @@ from sozia.server.fusion.mel_accumulator import MelAccumulator
 
 SESSION = "test-session"
 
+
 # Helpers: speech chunks peak above -4; silence peaks below -4.
 def _speech(t: int = 50, n: int = 128) -> np.ndarray:
     arr = np.full((t, n), -10.0, dtype=np.float32)

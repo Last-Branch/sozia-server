@@ -70,7 +70,8 @@ class SpeechFusionPolicy(FusionStrategy):
 
         asr = next((r for r in valid if r.modality_type == ModalityType.ASR), None)
         lip = next(
-            (r for r in valid if r.modality_type == ModalityType.LIP_READING), None,
+            (r for r in valid if r.modality_type == ModalityType.LIP_READING),
+            None,
         )
 
         session_id = health[0].session_id if health else ""
@@ -86,21 +87,22 @@ class SpeechFusionPolicy(FusionStrategy):
                 merged_text = asr.text
                 merged_source = ModalityType.ASR
             merged_confidence = (
-                self._asr_weight * asr.confidence
-                + self._lip_weight * lip.confidence
+                self._asr_weight * asr.confidence + self._lip_weight * lip.confidence
             )
             replaces = self._partial_ids.pop(session_id, None)
 
-            return [self._make_segment(
-                session_id=session_id,
-                status=SegmentStatus.FINAL,
-                text=merged_text,
-                source=merged_source,
-                confidence=min(1.0, merged_confidence),
-                timestamp_ms=asr.timestamp_ms,
-                duration_ms=max(asr.duration_ms, lip.duration_ms),
-                replaces_segment_id=replaces,
-            )]
+            return [
+                self._make_segment(
+                    session_id=session_id,
+                    status=SegmentStatus.FINAL,
+                    text=merged_text,
+                    source=merged_source,
+                    confidence=min(1.0, merged_confidence),
+                    timestamp_ms=asr.timestamp_ms,
+                    duration_ms=max(asr.duration_ms, lip.duration_ms),
+                    replaces_segment_id=replaces,
+                )
+            ]
 
         # Single modality → PARTIAL, replacing the previous PARTIAL so the
         # client always shows the latest lip-reading word rather than stacking.
@@ -109,17 +111,19 @@ class SpeechFusionPolicy(FusionStrategy):
         seg_id = str(uuid.uuid4())
         self._partial_ids[session_id] = seg_id
 
-        return [self._make_segment(
-            session_id=session_id,
-            status=SegmentStatus.PARTIAL,
-            text=single.text,
-            source=single.modality_type,
-            confidence=single.confidence,
-            timestamp_ms=single.timestamp_ms,
-            duration_ms=single.duration_ms,
-            replaces_segment_id=previous_id,
-            segment_id=seg_id,
-        )]
+        return [
+            self._make_segment(
+                session_id=session_id,
+                status=SegmentStatus.PARTIAL,
+                text=single.text,
+                source=single.modality_type,
+                confidence=single.confidence,
+                timestamp_ms=single.timestamp_ms,
+                duration_ms=single.duration_ms,
+                replaces_segment_id=previous_id,
+                segment_id=seg_id,
+            )
+        ]
 
     def emit_asr_final(
         self,
@@ -135,16 +139,18 @@ class SpeechFusionPolicy(FusionStrategy):
         if self.should_suppress(result):
             return []
         replaces = self._partial_ids.pop(session_id, None)
-        return [self._make_segment(
-            session_id=session_id,
-            status=SegmentStatus.FINAL,
-            text=result.text,
-            source=ModalityType.ASR,
-            confidence=result.confidence,
-            timestamp_ms=result.timestamp_ms,
-            duration_ms=result.duration_ms,
-            replaces_segment_id=replaces,
-        )]
+        return [
+            self._make_segment(
+                session_id=session_id,
+                status=SegmentStatus.FINAL,
+                text=result.text,
+                source=ModalityType.ASR,
+                confidence=result.confidence,
+                timestamp_ms=result.timestamp_ms,
+                duration_ms=result.duration_ms,
+                replaces_segment_id=replaces,
+            )
+        ]
 
     def should_suppress(self, result: ModalityResult) -> bool:
         return result.confidence < self._confidence_threshold
