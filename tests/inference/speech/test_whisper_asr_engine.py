@@ -186,7 +186,14 @@ class TestWhisperAsrEngineMelPrep:
         mel = engine._prepare_mel(np.random.randn(80, 200).astype(np.float32))
         assert mel.shape == (1, 80, 3000)
 
-    def test_transpose_t_by_80_input(self):
+    def test_transpose_short_chunk_client_format(self):
+        # Real client format: 500ms chunk → 50 frames × 80 mel bins → (50, 80).
+        # The previous condition (shape[0] > 80) failed here — regression guard.
+        engine = self._make_engine()
+        mel = engine._prepare_mel(np.random.randn(50, 80).astype(np.float32))
+        assert mel.shape == (1, 80, 3000)
+
+    def test_transpose_long_chunk_t_by_80_input(self):
         engine = self._make_engine()
         mel = engine._prepare_mel(np.random.randn(200, 80).astype(np.float32))
         assert mel.shape == (1, 80, 3000)

@@ -163,13 +163,18 @@ class WhisperAsrEngine(InferenceEngine):
                 f"WhisperAsrEngine: expected 2-D features, got shape {arr.shape}"
             )
 
-        # Transpose (T, 80) → (80, T)
-        if arr.ndim == 2 and arr.shape[1] <= 80 and arr.shape[0] > 80:
-            arr = arr.T
+        # Client sends (T, 80); Whisper needs (80, T). Detect orientation by
+        # which dimension equals 80 (mel bins). Handles any chunk length T.
+        if arr.ndim == 2:
+            if arr.shape[0] == 80:
+                pass  # already (80, T)
+            elif arr.shape[1] == 80:
+                arr = arr.T  # (T, 80) → (80, T)
+            # else: neither dim is 80 — fall through to zero-pad path below
 
         n_mels, t_len = arr.shape[0], arr.shape[1]
 
-        # Zero-pad to 80 mel bins if fewer (e.g. 13-dim MFCC input)
+        # Zero-pad to 80 mel bins if fewer
         if n_mels < 80:
             arr = np.vstack([arr, np.zeros((80 - n_mels, t_len), dtype=np.float32)])
 
