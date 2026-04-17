@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from sozia.common.models import ModelConfig
 
 _DEFAULT_TIMEOUT_MS = 800
+_CACHE_CLEAR_INTERVAL = 10
 
 
 class WhisperAsrEngine(InferenceEngine):
@@ -49,6 +50,7 @@ class WhisperAsrEngine(InferenceEngine):
         self._language: str = "tr"
         self._task: str = "transcribe"
         self._num_beams: int = 1
+        self._inference_count: int = 0
 
     # ------------------------------------------------------------------
     # InferenceEngine interface
@@ -98,8 +100,20 @@ class WhisperAsrEngine(InferenceEngine):
             raise InferenceTimeoutError(
                 f"WhisperAsrEngine exceeded {timeout_ms}ms budget."
             )
+        finally:
+            # On timeout the thread is still running and holds its own reference
+            # to `mel` via the call frame; this del only drops the event-loop
+            # copy. GPU memory is released when the thread returns naturally.
+            del mel
 
         latency_ms = int((time.perf_counter() - start) * 1000)
+
+        self._inference_count += 1
+        if (
+            self._inference_count % _CACHE_CLEAR_INTERVAL == 0
+            and torch.cuda.is_available()
+        ):
+            torch.cuda.empty_cache()
 
         return ModalityResult(
             modality_type=ModalityType.ASR,
@@ -180,7 +194,7 @@ class WhisperAsrEngine(InferenceEngine):
         forced_ids = self._processor.get_decoder_prompt_ids(
             language=self._language, task=self._task
         )
-        with torch.no_grad():
+        with torch.inference_mode():
             output = self._model.generate(
                 mel,
                 forced_decoder_ids=forced_ids,
@@ -188,12 +202,14 @@ class WhisperAsrEngine(InferenceEngine):
                 return_dict_in_generate=True,
                 output_scores=True,
             )
+            text = self._processor.tokenizer.batch_decode(
+                output.sequences, skip_special_tokens=True
+            )[0].strip()
+            confidence = self._extract_confidence(output)
 
-        text = self._processor.tokenizer.batch_decode(
-            output.sequences, skip_special_tokens=True
-        )[0].strip()
-
-        confidence = self._extract_confidence(output)
+        # Explicitly release GPU tensors held in the generate output (scores
+        # tuple, sequences) before returning to the event loop.
+        del output
         return text, confidence
 
     def _extract_confidence(self, output) -> float:
@@ -204,9 +220,9 @@ class WhisperAsrEngine(InferenceEngine):
             # sequences_scores is the sum of log-probs normalised by length
             score = output.sequences_scores[0].item()
         elif output.scores:
-            # Fallback: mean of per-step max log-prob
+            # Fallback: mean of per-step max log-prob (CPU to avoid CUDA intermediates).
             log_probs = [
-                torch.log_softmax(s, dim=-1).max(dim=-1).values.item()
+                torch.log_softmax(s.cpu().float(), dim=-1).max(dim=-1).values.item()
                 for s in output.scores
             ]
             score = sum(log_probs) / len(log_probs) if log_probs else -1.0
