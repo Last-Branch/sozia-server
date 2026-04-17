@@ -35,8 +35,9 @@ _CACHE_CLEAR_INTERVAL = 10
 # log10-mel threshold for server-side VAD: chunks whose loudest bin stays below
 # this are treated as silence and returned as empty without running Whisper.
 # Client sends raw log10-mel (Math.log10(energy + 1e-10)); typical speech peaks
-# above −3, background noise stays below −5.
-_SPEECH_ENERGY_THRESHOLD = -4.0
+# above −1, background noise stays below −3. Raised to -2.0 to block weak-signal
+# batches that cause Whisper to hallucinate ("Altyazı M.K." etc.).
+_SPEECH_ENERGY_THRESHOLD = -2.0
 
 
 class WhisperAsrEngine(InferenceEngine):
@@ -102,7 +103,11 @@ class WhisperAsrEngine(InferenceEngine):
 
         energy_max = float(np.max(features))
         if not self._has_speech_content(features):
-            _log.info("ASR energy gate: BLOCKED (max=%.3f < threshold=%.1f)", energy_max, _SPEECH_ENERGY_THRESHOLD)
+            _log.info(
+                "ASR energy gate: BLOCKED (max=%.3f < threshold=%.1f)",
+                energy_max,
+                _SPEECH_ENERGY_THRESHOLD,
+            )
             return ModalityResult(
                 modality_type=ModalityType.ASR,
                 text="",
@@ -179,9 +184,9 @@ class WhisperAsrEngine(InferenceEngine):
 
         Operates on raw client log10-mel values (before server normalisation).
         Client computes log10(energy + 1e-10), so:
-          silence / background noise → peaks below −5
-          actual speech              → peaks above −3
-        _SPEECH_ENERGY_THRESHOLD (-4.0) sits in the gap.
+          silence / background noise → peaks below −3
+          actual speech              → peaks above −1
+        _SPEECH_ENERGY_THRESHOLD (-2.0) sits in the gap.
         """
         return float(np.max(features)) > _SPEECH_ENERGY_THRESHOLD
 

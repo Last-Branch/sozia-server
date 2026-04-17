@@ -16,8 +16,9 @@ from __future__ import annotations
 import numpy as np
 
 # log10-mel floor for speech detection. Client sends Math.log10(energy + 1e-10);
-# speech peaks above −3, background noise stays below −5.
-_SPEECH_ENERGY_THRESHOLD: float = -4.0
+# speech peaks above −1, background noise stays below −3. -2.0 sits in the gap
+# and prevents weak-signal flushes that cause Whisper hallucinations.
+_SPEECH_ENERGY_THRESHOLD: float = -2.0
 
 # Ignore silence flushes shorter than this — avoids firing on a single quiet
 # frame in the middle of continuous speech.
