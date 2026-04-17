@@ -183,39 +183,39 @@ class TestWhisperAsrEngineMelPrep:
 
     def test_output_shape_is_batched(self):
         engine = self._make_engine()
-        mel = engine._prepare_mel(np.random.randn(80, 200).astype(np.float32))
+        mel, mask = engine._prepare_mel(np.random.randn(80, 200).astype(np.float32))
         assert mel.shape == (1, 80, 3000)
 
     def test_output_dtype_matches_model(self):
         engine = self._make_engine(dtype=torch.float16)
-        mel = engine._prepare_mel(np.random.randn(50, 80).astype(np.float32))
+        mel, _ = engine._prepare_mel(np.random.randn(50, 80).astype(np.float32))
         assert mel.dtype == torch.float16
 
     def test_128_bin_model_large_v3(self):
         engine = self._make_engine(n_mels=128)
-        mel = engine._prepare_mel(np.random.randn(50, 128).astype(np.float32))
+        mel, _ = engine._prepare_mel(np.random.randn(50, 128).astype(np.float32))
         assert mel.shape == (1, 128, 3000)
 
     def test_transpose_short_chunk_client_format(self):
         # Real client format: 500ms chunk → 50 frames × 80 mel bins → (50, 80).
         # The previous condition (shape[0] > 80) failed here — regression guard.
         engine = self._make_engine()
-        mel = engine._prepare_mel(np.random.randn(50, 80).astype(np.float32))
+        mel, _ = engine._prepare_mel(np.random.randn(50, 80).astype(np.float32))
         assert mel.shape == (1, 80, 3000)
 
     def test_transpose_long_chunk_t_by_80_input(self):
         engine = self._make_engine()
-        mel = engine._prepare_mel(np.random.randn(200, 80).astype(np.float32))
+        mel, _ = engine._prepare_mel(np.random.randn(200, 80).astype(np.float32))
         assert mel.shape == (1, 80, 3000)
 
     def test_pads_short_mel_bins(self):
         engine = self._make_engine()
-        mel = engine._prepare_mel(np.random.randn(13, 100).astype(np.float32))
+        mel, _ = engine._prepare_mel(np.random.randn(13, 100).astype(np.float32))
         assert mel.shape == (1, 80, 3000)
 
     def test_trims_long_time_axis(self):
         engine = self._make_engine()
-        mel = engine._prepare_mel(np.random.randn(80, 5000).astype(np.float32))
+        mel, _ = engine._prepare_mel(np.random.randn(80, 5000).astype(np.float32))
         assert mel.shape == (1, 80, 3000)
 
     def test_rejects_1d_input(self):
@@ -223,13 +223,32 @@ class TestWhisperAsrEngineMelPrep:
         with pytest.raises(ValueError, match="2-D"):
             engine._prepare_mel(np.zeros(100, dtype=np.float32))
 
+    def test_attention_mask_shape(self):
+        engine = self._make_engine()
+        _, mask = engine._prepare_mel(np.random.randn(80, 200).astype(np.float32))
+        assert mask.shape == (1, 3000)
+        assert mask.dtype == torch.long
+
+    def test_attention_mask_marks_real_frames(self):
+        engine = self._make_engine()
+        # (N, T) orientation: 80 bins × 200 real frames, padded to 3000
+        _, mask = engine._prepare_mel(np.random.randn(80, 200).astype(np.float32))
+        assert mask[0, :200].sum().item() == 200
+        assert mask[0, 200:].sum().item() == 0
+
+    def test_attention_mask_full_chunk(self):
+        # 3000-frame chunk should produce all-ones mask — no padding needed
+        engine = self._make_engine()
+        _, mask = engine._prepare_mel(np.random.randn(80, 3000).astype(np.float32))
+        assert mask.sum().item() == 3000
+
     def test_normalisation_applied_globally(self):
         engine = self._make_engine()
         # Known array: all values 0.0 except one cell = 8.0 → max_val = 8.0
         # clip(x, 0, 8) → (x+4)/4 → range [1.0, 3.0]
         arr = np.zeros((80, 100), dtype=np.float32)
         arr[0, 0] = 8.0
-        mel = engine._prepare_mel(arr)
+        mel, _ = engine._prepare_mel(arr)
         tensor_vals = mel[0].numpy()
         assert float(tensor_vals.max()) == pytest.approx(3.0, abs=1e-5)
         assert float(tensor_vals.min()) == pytest.approx(1.0, abs=1e-5)
@@ -239,9 +258,70 @@ class TestWhisperAsrEngineMelPrep:
         engine = self._make_engine()
         rng = np.random.default_rng(42)
         arr = rng.uniform(-10, 10, (80, 3000)).astype(np.float32)
-        mel = engine._prepare_mel(arr)
+        mel, _ = engine._prepare_mel(arr)
         span = mel.max().item() - mel.min().item()
         assert span == pytest.approx(2.0, abs=1e-4)
+
+
+# ---------------------------------------------------------------------------
+# VAD gate
+# ---------------------------------------------------------------------------
+
+
+class TestWhisperAsrEngineVad:
+    def test_silence_skips_inference(self):
+        from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
+
+        mock_model = _make_mock_model()
+        mock_processor = MagicMock()
+        mock_processor.tokenizer.batch_decode.return_value = ["hallucination"]
+
+        with patch.object(
+            WhisperAsrEngine,
+            "_load_from_directory",
+            return_value=(mock_processor, mock_model),
+        ):
+            engine = WhisperAsrEngine()
+            import asyncio
+
+            asyncio.get_event_loop().run_until_complete(engine.load_model(_make_config()))
+
+        # All-−10 array is pure silence (log10-mel floor)
+        silent = np.full((80, 200), -10.0, dtype=np.float32)
+        result = asyncio.get_event_loop().run_until_complete(engine.predict(silent))
+        assert result.text == ""
+        assert result.confidence == 0.0
+        mock_model.generate.assert_not_called()
+
+    def test_speech_runs_inference(self):
+        from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
+
+        mock_processor = MagicMock()
+        mock_processor.tokenizer.batch_decode.return_value = ["merhaba"]
+        mock_model = _make_mock_model()
+
+        with patch.object(
+            WhisperAsrEngine,
+            "_load_from_directory",
+            return_value=(mock_processor, mock_model),
+        ):
+            engine = WhisperAsrEngine()
+            import asyncio
+
+            asyncio.get_event_loop().run_until_complete(engine.load_model(_make_config()))
+
+        # Array with a peak above the threshold → should run inference
+        speech = np.full((80, 200), -10.0, dtype=np.float32)
+        speech[0, 0] = -2.0
+        result = asyncio.get_event_loop().run_until_complete(engine.predict(speech))
+        assert result.text == "merhaba"
+        mock_model.generate.assert_called_once()
+
+    def test_has_speech_content_threshold(self):
+        from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
+
+        assert WhisperAsrEngine._has_speech_content(np.array([[-10.0, -8.0]])) is False
+        assert WhisperAsrEngine._has_speech_content(np.array([[-3.0, -10.0]])) is True
 
 
 # ---------------------------------------------------------------------------

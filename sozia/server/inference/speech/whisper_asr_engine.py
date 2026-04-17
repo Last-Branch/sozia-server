@@ -29,6 +29,12 @@ if TYPE_CHECKING:
 _DEFAULT_TIMEOUT_MS = 800
 _CACHE_CLEAR_INTERVAL = 10
 
+# log10-mel threshold for server-side VAD: chunks whose loudest bin stays below
+# this are treated as silence and returned as empty without running Whisper.
+# Client sends raw log10-mel (Math.log10(energy + 1e-10)); typical speech peaks
+# above −3, background noise stays below −5.
+_SPEECH_ENERGY_THRESHOLD = -4.0
+
 
 class WhisperAsrEngine(InferenceEngine):
     """InferenceEngine backed by a HuggingFace WhisperForConditionalGeneration.
@@ -91,12 +97,22 @@ class WhisperAsrEngine(InferenceEngine):
         if self._model is None or self._processor is None:
             raise ModelNotLoadedError("WhisperAsrEngine: no model loaded.")
 
-        mel = self._prepare_mel(features)
+        if not self._has_speech_content(features):
+            return ModalityResult(
+                modality_type=ModalityType.ASR,
+                text="",
+                confidence=0.0,
+                timestamp_ms=0,
+                duration_ms=0,
+                inference_latency_ms=0,
+            )
+
+        mel, attention_mask = self._prepare_mel(features)
         start = time.perf_counter()
 
         try:
             text, confidence = await asyncio.wait_for(
-                asyncio.to_thread(self._run_inference, mel),
+                asyncio.to_thread(self._run_inference, mel, attention_mask),
                 timeout=timeout_ms / 1000.0,
             )
         except asyncio.TimeoutError:
@@ -104,10 +120,7 @@ class WhisperAsrEngine(InferenceEngine):
                 f"WhisperAsrEngine exceeded {timeout_ms}ms budget."
             )
         finally:
-            # On timeout the thread is still running and holds its own reference
-            # to `mel` via the call frame; this del only drops the event-loop
-            # copy. GPU memory is released when the thread returns naturally.
-            del mel
+            del mel, attention_mask
 
         latency_ms = int((time.perf_counter() - start) * 1000)
 
@@ -154,10 +167,28 @@ class WhisperAsrEngine(InferenceEngine):
         model.eval()
         return processor, model
 
-    def _prepare_mel(self, features: np.ndarray) -> torch.Tensor:
+    @staticmethod
+    def _has_speech_content(features: np.ndarray) -> bool:
+        """Return False if the mel chunk is silence/noise.
+
+        Operates on raw client log10-mel values (before server normalisation).
+        Client computes log10(energy + 1e-10), so:
+          silence / background noise → peaks below −5
+          actual speech              → peaks above −3
+        _SPEECH_ENERGY_THRESHOLD (-4.0) sits in the gap.
+        """
+        return float(np.max(features)) > _SPEECH_ENERGY_THRESHOLD
+
+    def _prepare_mel(
+        self, features: np.ndarray
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Convert incoming feature array to a Whisper-compatible mel tensor.
 
-        Returns a tensor of shape ``(1, 80, 3000)`` cast to the model's dtype.
+        Returns:
+            mel: ``(1, N, 3000)`` cast to the model's dtype.
+            attention_mask: ``(1, 3000)`` long tensor — 1 for real frames,
+                0 for zero-padded frames. Passing this to ``generate()``
+                prevents Whisper from treating silence-padding as real audio.
         """
         arr = np.asarray(features, dtype=np.float32)
 
@@ -182,8 +213,12 @@ class WhisperAsrEngine(InferenceEngine):
         if n_mels < n:
             arr = np.vstack([arr, np.zeros((n - n_mels, t_len), dtype=np.float32)])
 
-        # Whisper expects exactly 3000 time frames (30 s × 100 Hz)
+        # Whisper expects exactly 3000 time frames (30 s × 100 Hz).
+        # Record the real frame count before padding so we can build a precise
+        # attention mask — an all-ones mask would cause the model to treat the
+        # zero-padded tail as real audio and hallucinate.
         target_t = 3000
+        real_frames = min(arr.shape[1], target_t)
         if arr.shape[1] < target_t:
             arr = np.pad(arr, ((0, 0), (0, target_t - arr.shape[1])))
         elif arr.shape[1] > target_t:
@@ -197,20 +232,29 @@ class WhisperAsrEngine(InferenceEngine):
         arr = (arr + 4.0) / 4.0
 
         model_dtype = next(self._model.parameters()).dtype
-        return (
+        mel = (
             torch.from_numpy(arr)
             .unsqueeze(0)
             .to(device=self._device, dtype=model_dtype)
         )
 
-    def _run_inference(self, mel: torch.Tensor) -> tuple[str, float]:
+        attention_mask = torch.zeros(1, target_t, dtype=torch.long, device=self._device)
+        attention_mask[0, :real_frames] = 1
+
+        return mel, attention_mask
+
+    def _run_inference(
+        self, mel: torch.Tensor, attention_mask: torch.Tensor
+    ) -> tuple[str, float]:
         """Synchronous HF Whisper decode — called inside ``to_thread``."""
         with torch.inference_mode():
             output = self._model.generate(
                 mel,
+                attention_mask=attention_mask,
                 language=self._language,
                 task=self._task,
                 num_beams=self._num_beams,
+                no_repeat_ngram_size=3,
                 return_dict_in_generate=True,
             )
             text = self._processor.tokenizer.batch_decode(
