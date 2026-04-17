@@ -306,28 +306,28 @@ class LandmarkFrame:
                 self.face_landmarks,
                 FACE_LANDMARK_COUNT,
                 "face_landmarks",
-                check_xy_unit_range=True,
+                check_xy_unit_range=False,
             )
         if self.left_hand_landmarks is not None:
             _validate_landmark_array(
                 self.left_hand_landmarks,
                 HAND_LANDMARK_COUNT,
                 "left_hand_landmarks",
-                check_xy_unit_range=True,
+                check_xy_unit_range=False,
             )
         if self.right_hand_landmarks is not None:
             _validate_landmark_array(
                 self.right_hand_landmarks,
                 HAND_LANDMARK_COUNT,
                 "right_hand_landmarks",
-                check_xy_unit_range=True,
+                check_xy_unit_range=False,
             )
         if self.pose_landmarks is not None:
             _validate_landmark_array(
                 self.pose_landmarks,
                 POSE_LANDMARK_COUNT,
                 "pose_landmarks",
-                check_xy_unit_range=True,
+                check_xy_unit_range=False,
             )
 
 
