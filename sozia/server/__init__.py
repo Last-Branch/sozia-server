@@ -42,6 +42,7 @@ ENV_API_KEY = "SOZIA_API_KEY"
 ENV_DEVICE = "SOZIA_DEVICE"
 ENV_WHISPER_WEIGHTS = "SOZIA_WHISPER_WEIGHTS"
 ENV_LIP_WEIGHTS = "SOZIA_LIP_WEIGHTS"
+ENV_LIP_VOCAB = "SOZIA_LIP_VOCAB"
 ENV_TSL_WEIGHTS = "SOZIA_TSL_WEIGHTS"
 ENV_TSL_SCALER = "SOZIA_TSL_SCALER"
 ENV_GLOSS_WEIGHTS = "SOZIA_GLOSS_WEIGHTS"
@@ -66,6 +67,7 @@ def _speech_configs(device: str) -> tuple[ModelConfig | None, ModelConfig | None
     """Return (asr_config, lip_config); None where weights are not configured."""
     asr_path = _weights(ENV_WHISPER_WEIGHTS)
     lip_path = _weights(ENV_LIP_WEIGHTS)
+    lip_vocab = _weights(ENV_LIP_VOCAB)
 
     asr_cfg = (
         ModelConfig(
@@ -77,12 +79,15 @@ def _speech_configs(device: str) -> tuple[ModelConfig | None, ModelConfig | None
         if asr_path
         else None
     )
+    lip_params: dict = {}
+    if lip_vocab:
+        lip_params["vocab_path"] = lip_vocab
     lip_cfg = (
         ModelConfig(
             model_id="lip-reading-v1",
             weights_path=lip_path,
             device=device,
-            params={},
+            params=lip_params,
         )
         if lip_path
         else None
