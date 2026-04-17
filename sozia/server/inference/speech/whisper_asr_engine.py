@@ -10,8 +10,11 @@ Latency budget: ≤ 800 ms.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from typing import TYPE_CHECKING
+
+_log = logging.getLogger(__name__)
 
 import numpy as np
 import torch
@@ -97,7 +100,9 @@ class WhisperAsrEngine(InferenceEngine):
         if self._model is None or self._processor is None:
             raise ModelNotLoadedError("WhisperAsrEngine: no model loaded.")
 
+        energy_max = float(np.max(features))
         if not self._has_speech_content(features):
+            _log.info("ASR energy gate: BLOCKED (max=%.3f < threshold=%.1f)", energy_max, _SPEECH_ENERGY_THRESHOLD)
             return ModalityResult(
                 modality_type=ModalityType.ASR,
                 text="",
@@ -107,6 +112,7 @@ class WhisperAsrEngine(InferenceEngine):
                 inference_latency_ms=0,
             )
 
+        _log.info("ASR energy gate: PASSED (max=%.3f)", energy_max)
         mel, attention_mask = self._prepare_mel(features)
         start = time.perf_counter()
 

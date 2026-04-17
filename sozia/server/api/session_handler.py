@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 from starlette.websockets import WebSocketDisconnect
 
@@ -136,10 +139,18 @@ class SessionHandler:
         )
 
     async def _handle_audio(self, data: dict) -> None:
+        features = data["features"]
+        rows = len(features)
+        cols = len(features[0]) if rows else 0
+        flat_max = max((max(row) for row in features), default=float("-inf"))
+        logger.info(
+            "audio_chunk received: shape=(%d, %d) max=%.3f feature_type=%s",
+            rows, cols, flat_max, data.get("feature_type", "?"),
+        )
         chunk = AudioFeatureChunk(
             session_id=self.session_id,
             timestamp_ms=data["timestamp_ms"],
-            features=data["features"],
+            features=features,
             feature_type=data["feature_type"],
             sample_rate_hz=data["sample_rate_hz"],
             chunk_duration_ms=data["chunk_duration_ms"],

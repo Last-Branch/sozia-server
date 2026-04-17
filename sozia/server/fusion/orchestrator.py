@@ -14,9 +14,12 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import logging
 import time
 import uuid
 from typing import TYPE_CHECKING, Awaitable, Callable
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 
@@ -267,11 +270,20 @@ class FusionOrchestrator:
 
         # --- ASR (accumulated, utterance-boundary) → FINAL ------------------
         asr_batch = self._mel_accumulator.push(session_id, audio_np)
+        logger.info(
+            "mel_accumulator: pending=%d frames, flushed=%s",
+            self._mel_accumulator.pending_frames(session_id),
+            asr_batch is not None,
+        )
         if asr_batch is not None and asr_entry is not None:
             asr_engine, _ = asr_entry
             try:
                 # Use a longer timeout — the batch covers up to 15 s of audio.
                 asr_result = await asr_engine.predict(asr_batch, timeout_ms=3000)
+                logger.info(
+                    "ASR result: text=%r confidence=%.4f latency=%dms",
+                    asr_result.text, asr_result.confidence, asr_result.inference_latency_ms,
+                )
                 asr_result = dataclasses.replace(
                     asr_result,
                     timestamp_ms=features.timestamp_ms,
