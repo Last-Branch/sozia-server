@@ -166,6 +166,13 @@ class WhisperAsrEngine(InferenceEngine):
         elif arr.shape[1] > target_t:
             arr = arr[:, :target_t]
 
+        # Global log-mel normalisation matching WhisperFeatureExtractor.
+        # Must be applied after the full segment is assembled — frame-level
+        # normalisation on the client produces inconsistent scale.
+        max_val = float(arr.max())
+        arr = np.clip(arr, max_val - 8.0, max_val)
+        arr = (arr + 4.0) / 4.0
+
         return torch.from_numpy(arr).unsqueeze(0).to(self._device)
 
     def _run_inference(self, mel: torch.Tensor) -> tuple[str, float]:

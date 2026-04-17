@@ -206,6 +206,26 @@ class TestWhisperAsrEngineMelPrep:
         with pytest.raises(ValueError, match="2-D"):
             engine._prepare_mel(np.zeros(100, dtype=np.float32))
 
+    def test_normalisation_applied_globally(self):
+        engine = self._make_engine()
+        # Known array: all values 0.0 except one cell = 8.0 → max_val = 8.0
+        # clip(x, 0, 8) → (x+4)/4 → range [1.0, 3.0]
+        arr = np.zeros((80, 100), dtype=np.float32)
+        arr[0, 0] = 8.0
+        mel = engine._prepare_mel(arr)
+        tensor_vals = mel[0].numpy()
+        assert float(tensor_vals.max()) == pytest.approx(3.0, abs=1e-5)
+        assert float(tensor_vals.min()) == pytest.approx(1.0, abs=1e-5)
+
+    def test_normalisation_span_is_exactly_two(self):
+        # clip window is 8 units wide; after (x+4)/4 the span collapses to 8/4 = 2.0
+        engine = self._make_engine()
+        rng = np.random.default_rng(42)
+        arr = rng.uniform(-10, 10, (80, 3000)).astype(np.float32)
+        mel = engine._prepare_mel(arr)
+        span = mel.max().item() - mel.min().item()
+        assert span == pytest.approx(2.0, abs=1e-4)
+
 
 # ---------------------------------------------------------------------------
 # Confidence extraction
