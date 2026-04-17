@@ -284,7 +284,9 @@ class TestWhisperAsrEngineVad:
             engine = WhisperAsrEngine()
             import asyncio
 
-            asyncio.get_event_loop().run_until_complete(engine.load_model(_make_config()))
+            asyncio.get_event_loop().run_until_complete(
+                engine.load_model(_make_config())
+            )
 
         # All-−10 array is pure silence (log10-mel floor)
         silent = np.full((80, 200), -10.0, dtype=np.float32)
@@ -308,7 +310,9 @@ class TestWhisperAsrEngineVad:
             engine = WhisperAsrEngine()
             import asyncio
 
-            asyncio.get_event_loop().run_until_complete(engine.load_model(_make_config()))
+            asyncio.get_event_loop().run_until_complete(
+                engine.load_model(_make_config())
+            )
 
         # Array with a peak above the threshold → should run inference
         speech = np.full((80, 200), -10.0, dtype=np.float32)

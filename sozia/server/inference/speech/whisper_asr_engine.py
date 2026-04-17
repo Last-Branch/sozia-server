@@ -179,9 +179,7 @@ class WhisperAsrEngine(InferenceEngine):
         """
         return float(np.max(features)) > _SPEECH_ENERGY_THRESHOLD
 
-    def _prepare_mel(
-        self, features: np.ndarray
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def _prepare_mel(self, features: np.ndarray) -> tuple[torch.Tensor, torch.Tensor]:
         """Convert incoming feature array to a Whisper-compatible mel tensor.
 
         Returns:
