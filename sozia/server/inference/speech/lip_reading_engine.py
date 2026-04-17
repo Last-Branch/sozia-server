@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from sozia.common.models import ModelConfig
 
 _DEFAULT_TIMEOUT_MS = 1200
+_CACHE_CLEAR_INTERVAL = 10
 
 # Face landmark subset used by Sozia (83 points × 3 coords = 249 features).
 _FACE_FEATURE_DIM = 249
@@ -138,6 +139,7 @@ class LipReadingEngine(InferenceEngine):
         self._device: torch.device = torch.device("cpu")
         self._max_seq_len: int = 150
         self._vocab: list[str] | None = None
+        self._inference_count: int = 0
 
     # ------------------------------------------------------------------
     # InferenceEngine interface
@@ -206,9 +208,23 @@ class LipReadingEngine(InferenceEngine):
             raise InferenceTimeoutError(
                 f"LipReadingEngine exceeded {timeout_ms}ms budget."
             )
+        finally:
+            # On timeout the thread still holds a reference to `tensor` via its
+            # call frame; this del only drops the event-loop copy. GPU memory is
+            # released when the thread returns naturally.
+            del tensor
 
         latency_ms = int((time.perf_counter() - start) * 1000)
         text, confidence = self._decode_output(logits)
+
+        # _inference_count is only incremented from the asyncio event loop (after
+        # await), so no locking is needed. One counter per engine instance.
+        self._inference_count += 1
+        if (
+            self._inference_count % _CACHE_CLEAR_INTERVAL == 0
+            and torch.cuda.is_available()
+        ):
+            torch.cuda.empty_cache()
 
         return ModalityResult(
             modality_type=ModalityType.LIP_READING,
@@ -284,9 +300,14 @@ class LipReadingEngine(InferenceEngine):
         tensor: torch.Tensor,
         length: torch.Tensor,
     ) -> torch.Tensor:
-        """Synchronous forward pass — called inside ``to_thread``."""
-        with torch.no_grad():
-            return self._model(tensor, lengths=length)
+        """Synchronous forward pass — called inside ``to_thread``.
+
+        Returns logits on CPU so the CUDA allocation is released before the
+        result crosses back to the event loop.
+        """
+        with torch.inference_mode():
+            logits = self._model(tensor, lengths=length)
+        return logits.cpu()
 
     def _decode_output(
         self,
