@@ -46,43 +46,44 @@ _FACE_FEATURE_DIM = 249
 
 
 class LipReadingModel(nn.Module):
-    """CNN-GRU word classifier for lip-motion features.
+    """GRU word classifier for lip-motion features (ActionGRU small).
 
-    Architecture:
-        1-D Conv block (temporal smoothing) → GRU encoder
-        → last real-frame hidden state → classifier head (BN → ReLU → Dropout → Linear)
+    Mirrors the ActionGRU architecture trained in sozia-research:
+        GRU encoder (4 layers, hidden=256, input=249)
+        → last real-frame hidden state
+        → head: Linear(256,512) → BN → ReLU → Dropout
+                → Linear(512,256) → BN → ReLU → Dropout
+                → Linear(256, num_classes)
 
-    Output is ``(batch, num_classes)`` — one class prediction per input sequence.
-    Training uses cross-entropy with word-level labels from TSL sign class names.
+    No Conv1d frontend — the GRU receives raw 249-dim landmark features.
     """
 
     def __init__(
         self,
         input_dim: int = _FACE_FEATURE_DIM,
         hidden_dim: int = 256,
-        num_layers: int = 3,
+        num_layers: int = 4,
         num_classes: int = 226,
-        dropout: float = 0.3,
+        dropout: float = 0.4,
     ) -> None:
         super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv1d(input_dim, hidden_dim, kernel_size=3, padding=1),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-        )
         self.gru = nn.GRU(
-            input_size=hidden_dim,
+            input_size=input_dim,
             hidden_size=hidden_dim,
             num_layers=num_layers,
             batch_first=True,
             dropout=dropout if num_layers > 1 else 0.0,
         )
         self.head = nn.Sequential(
-            nn.BatchNorm1d(hidden_dim),
+            nn.Linear(hidden_dim, 512),
+            nn.BatchNorm1d(512),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim, num_classes),
+            nn.Linear(512, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(256, num_classes),
         )
 
     def forward(
@@ -101,26 +102,22 @@ class LipReadingModel(nn.Module):
         Returns:
             Class logits of shape ``(batch, num_classes)``.
         """
-        # Conv expects (batch, channels, seq_len).
-        out = self.conv(x.transpose(1, 2)).transpose(1, 2)
-
         if lengths is not None:
             packed = nn.utils.rnn.pack_padded_sequence(
-                out,
+                x,
                 lengths.cpu().clamp(min=1),
                 batch_first=True,
                 enforce_sorted=False,
             )
             packed_out, _ = self.gru(packed)
             out, _ = nn.utils.rnn.pad_packed_sequence(packed_out, batch_first=True)
-            # Index the last real frame for each sample in the batch.
             idx = (lengths - 1).clamp(min=0).to(out.device)
             last = out[torch.arange(out.size(0), device=out.device), idx]
         else:
-            out, _ = self.gru(out)
-            last = out[:, -1, :]  # (batch, hidden_dim)
+            out, _ = self.gru(x)
+            last = out[:, -1, :]
 
-        return self.head(last)  # (batch, num_classes)
+        return self.head(last)
 
 
 class LipReadingEngine(InferenceEngine):
@@ -149,7 +146,7 @@ class LipReadingEngine(InferenceEngine):
     async def load_model(self, config: ModelConfig) -> None:
         device = torch.device(config.device)
         hidden_dim = config.params.get("hidden_dim", 256)
-        num_layers = config.params.get("num_layers", 3)
+        num_layers = config.params.get("num_layers", 4)
         num_classes = config.params.get("num_classes", 226)
         self._max_seq_len = config.params.get("max_seq_len", 150)
 

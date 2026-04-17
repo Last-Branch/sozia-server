@@ -329,10 +329,11 @@ class TestLandmarkFrame:
         with pytest.raises(ValueError):
             self._make(face_landmarks=bad)
 
-    def test_face_xy_out_of_range_raises(self):
-        bad = [[1.5, 0.5, 0.0]] * 83  # x > 1
-        with pytest.raises(ValueError):
-            self._make(face_landmarks=bad)
+    def test_face_xy_out_of_range_allowed(self):
+        # MediaPipe produces x/y outside [0, 1] when a landmark exits the frame.
+        ok = [[1.5, 0.5, 0.0]] * 83
+        f = self._make(face_landmarks=ok)
+        assert f.face_landmarks[0][0] == 1.5
 
     def test_face_z_out_of_range_allowed(self):
         # z is MediaPipe relative depth — not constrained to [0, 1]
@@ -340,10 +341,11 @@ class TestLandmarkFrame:
         f = self._make(face_landmarks=ok)
         assert f.face_landmarks[0][2] == -2.5
 
-    def test_hand_xy_out_of_range_raises(self):
-        bad = [[0.5, 1.2, 0.0]] * 21  # y > 1
-        with pytest.raises(ValueError):
-            self._make(left_hand_landmarks=bad)
+    def test_hand_xy_out_of_range_allowed(self):
+        # MediaPipe produces out-of-range coords when a hand exits the frame.
+        ok = [[0.5, 1.2, 0.0]] * 21
+        f = self._make(left_hand_landmarks=ok)
+        assert f.left_hand_landmarks[0][1] == pytest.approx(1.2)
 
 
 # ===========================================================================
