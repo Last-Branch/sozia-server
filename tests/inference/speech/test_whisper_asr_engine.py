@@ -52,6 +52,7 @@ def _make_mock_engine() -> tuple:
     ):
         engine = WhisperAsrEngine()
         import asyncio
+
         asyncio.get_event_loop().run_until_complete(engine.load_model(_make_config()))
 
     return engine, mock_model, mock_processor
@@ -173,6 +174,7 @@ class TestWhisperAsrEnginePredict:
 class TestWhisperAsrEngineMelPrep:
     def _make_engine(self):
         from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
+
         engine = WhisperAsrEngine()
         engine._model = MagicMock()
         engine._processor = MagicMock()
@@ -238,7 +240,9 @@ class TestWhisperAsrEngineConfidence:
 
         engine = WhisperAsrEngine()
         step_scores = [torch.randn(1, 50_000) for _ in range(5)]
-        c = engine._extract_confidence(self._make_output(seq_score=None, scores=step_scores))
+        c = engine._extract_confidence(
+            self._make_output(seq_score=None, scores=step_scores)
+        )
         assert 0.0 <= c <= 1.0
 
     def test_confidence_always_clamped(self):
