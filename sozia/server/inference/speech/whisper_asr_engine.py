@@ -154,7 +154,7 @@ class WhisperAsrEngine(InferenceEngine):
     def _prepare_mel(self, features: np.ndarray) -> torch.Tensor:
         """Convert incoming feature array to a Whisper-compatible mel tensor.
 
-        Returns a float32 tensor of shape ``(1, 80, 3000)`` (batch=1).
+        Returns a tensor of shape ``(1, 80, 3000)`` cast to the model's dtype.
         """
         arr = np.asarray(features, dtype=np.float32)
 
@@ -192,20 +192,22 @@ class WhisperAsrEngine(InferenceEngine):
         arr = np.clip(arr, max_val - 8.0, max_val)
         arr = (arr + 4.0) / 4.0
 
-        return torch.from_numpy(arr).unsqueeze(0).to(self._device)
+        model_dtype = next(self._model.parameters()).dtype
+        return (
+            torch.from_numpy(arr)
+            .unsqueeze(0)
+            .to(device=self._device, dtype=model_dtype)
+        )
 
     def _run_inference(self, mel: torch.Tensor) -> tuple[str, float]:
         """Synchronous HF Whisper decode — called inside ``to_thread``."""
-        forced_ids = self._processor.get_decoder_prompt_ids(
-            language=self._language, task=self._task
-        )
         with torch.inference_mode():
             output = self._model.generate(
                 mel,
-                forced_decoder_ids=forced_ids,
+                language=self._language,
+                task=self._task,
                 num_beams=self._num_beams,
                 return_dict_in_generate=True,
-                output_scores=True,
             )
             text = self._processor.tokenizer.batch_decode(
                 output.sequences, skip_special_tokens=True
