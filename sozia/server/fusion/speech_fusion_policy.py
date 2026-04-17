@@ -102,8 +102,10 @@ class SpeechFusionPolicy(FusionStrategy):
                 replaces_segment_id=replaces,
             )]
 
-        # Single modality → PARTIAL.
+        # Single modality → PARTIAL, replacing the previous PARTIAL so the
+        # client always shows the latest lip-reading word rather than stacking.
         single = asr or lip
+        previous_id = self._partial_ids.get(session_id)
         seg_id = str(uuid.uuid4())
         self._partial_ids[session_id] = seg_id
 
@@ -115,8 +117,33 @@ class SpeechFusionPolicy(FusionStrategy):
             confidence=single.confidence,
             timestamp_ms=single.timestamp_ms,
             duration_ms=single.duration_ms,
-            replaces_segment_id=None,
+            replaces_segment_id=previous_id,
             segment_id=seg_id,
+        )]
+
+    def emit_asr_final(
+        self,
+        result: ModalityResult,
+        session_id: str,
+    ) -> list[TranscriptSegment]:
+        """Emit a FINAL segment from an accumulated ASR result.
+
+        Called when the MelAccumulator flushes after an utterance boundary.
+        The result covers a full sentence so it goes straight to FINAL,
+        replacing the last lip-reading PARTIAL stored for this session.
+        """
+        if self.should_suppress(result):
+            return []
+        replaces = self._partial_ids.pop(session_id, None)
+        return [self._make_segment(
+            session_id=session_id,
+            status=SegmentStatus.FINAL,
+            text=result.text,
+            source=ModalityType.ASR,
+            confidence=result.confidence,
+            timestamp_ms=result.timestamp_ms,
+            duration_ms=result.duration_ms,
+            replaces_segment_id=replaces,
         )]
 
     def should_suppress(self, result: ModalityResult) -> bool:

@@ -34,6 +34,8 @@ from sozia.common.models import (
 )
 from sozia.server.fusion.degraded_mode_handler import DegradedModeHandler
 from sozia.server.fusion.frame_accumulator import FrameAccumulator
+from sozia.server.fusion.mel_accumulator import MelAccumulator
+from sozia.server.fusion.speech_fusion_policy import SpeechFusionPolicy
 
 if TYPE_CHECKING:
     from sozia.common.interfaces import FusionStrategy, InferenceEngine
@@ -70,6 +72,7 @@ class FusionOrchestrator:
         self,
         degraded_handler: DegradedModeHandler | None = None,
         window_size: int = 30,
+        mel_max_frames: int = 1500,
     ) -> None:
         self._policies: dict[ModalityPath, FusionStrategy] = {}
         # Keyed by (path, modality_type) → (engine, config).
@@ -78,6 +81,7 @@ class FusionOrchestrator:
         ] = {}
         self._degraded: DegradedModeHandler = degraded_handler or DegradedModeHandler()
         self._accumulator = FrameAccumulator(window_size=window_size)
+        self._mel_accumulator = MelAccumulator(max_frames=mel_max_frames)
         # Per-session face landmark cache (SPEECH path — fed to LipReadingEngine).
         self._face_cache: dict[str, np.ndarray] = {}
 
@@ -134,6 +138,7 @@ class FusionOrchestrator:
         """
         self._face_cache.pop(session_id, None)
         self._accumulator.reset(session_id)
+        self._mel_accumulator.reset(session_id)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -232,7 +237,9 @@ class FusionOrchestrator:
                 )
             return
 
-        # AudioFeatureChunk — run ASR (+ LipReading in parallel if face cached).
+        # AudioFeatureChunk — two independent paths:
+        #   Lip-reading: fires on every chunk → PARTIAL (fast word hints).
+        #   ASR: fires when MelAccumulator flushes (silence or 15 s) → FINAL.
         audio_np = np.asarray(features.features, dtype=np.float32)
         face_np = self._face_cache.get(session_id)
 
@@ -240,56 +247,48 @@ class FusionOrchestrator:
         asr_entry = path_engines.get(ModalityType.ASR)
         lip_entry = path_engines.get(ModalityType.LIP_READING)
 
-        async def _run_asr() -> ModalityResult | None:
-            if asr_entry is None:
-                return None
-            asr_engine, _ = asr_entry
-            try:
-                return await asr_engine.predict(audio_np)
-            except InferenceTimeoutError:
-                return None
-
-        async def _run_lip() -> ModalityResult | None:
-            if lip_entry is None or face_np is None:
-                return None
+        # --- Lip-reading (every chunk) → PARTIAL ----------------------------
+        if lip_entry is not None and face_np is not None:
             lip_engine, _ = lip_entry
             try:
-                return await lip_engine.predict(face_np)
+                lip_result = await lip_engine.predict(face_np)
+                lip_result = dataclasses.replace(
+                    lip_result,
+                    timestamp_ms=features.timestamp_ms,
+                    duration_ms=features.chunk_duration_ms,
+                )
+                lip_segments = await self.process_features(
+                    session_id, [lip_result], health, ModalityPath.SPEECH
+                )
+                for seg in lip_segments:
+                    await _maybe_await(send_fn(seg))
             except InferenceTimeoutError:
-                return None
+                pass
 
-        asr_result, lip_result = await asyncio.gather(_run_asr(), _run_lip())
-
-        if asr_result is None:
-            return  # ASR timed out or missing — nothing to emit.
-
-        # Stamp the session-timeline position from the AudioFeatureChunk.
-        # Engines return timestamp_ms=0 / duration_ms=0 (they have no timeline context);
-        # the orchestrator is the correct layer to fill this in.
-        asr_result = dataclasses.replace(
-            asr_result,
-            timestamp_ms=features.timestamp_ms,
-            duration_ms=features.chunk_duration_ms,
-        )
-        if lip_result is not None:
-            lip_result = dataclasses.replace(
-                lip_result,
-                timestamp_ms=features.timestamp_ms,
-                duration_ms=features.chunk_duration_ms,
-            )
-
-        results = [asr_result]
-        if lip_result is not None:
-            results.append(lip_result)
-
-        segments = await self.process_features(
-            session_id,
-            results,
-            health,
-            ModalityPath.SPEECH,
-        )
-        for seg in segments:
-            await _maybe_await(send_fn(seg))
+        # --- ASR (accumulated, utterance-boundary) → FINAL ------------------
+        asr_batch = self._mel_accumulator.push(session_id, audio_np)
+        if asr_batch is not None and asr_entry is not None:
+            asr_engine, _ = asr_entry
+            try:
+                # Use a longer timeout — the batch covers up to 15 s of audio.
+                asr_result = await asr_engine.predict(asr_batch, timeout_ms=3000)
+                asr_result = dataclasses.replace(
+                    asr_result,
+                    timestamp_ms=features.timestamp_ms,
+                    duration_ms=features.chunk_duration_ms,
+                )
+                policy = self._policies.get(ModalityPath.SPEECH)
+                if isinstance(policy, SpeechFusionPolicy):
+                    asr_segments = policy.emit_asr_final(asr_result, session_id)
+                else:
+                    # Fallback for non-standard policies.
+                    asr_segments = await self.process_features(
+                        session_id, [asr_result], health, ModalityPath.SPEECH
+                    )
+                for seg in asr_segments:
+                    await _maybe_await(send_fn(seg))
+            except InferenceTimeoutError:
+                pass
 
     async def _process_sign(
         self,
