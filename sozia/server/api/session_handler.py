@@ -145,7 +145,10 @@ class SessionHandler:
         flat_max = max((max(row) for row in features), default=float("-inf"))
         logger.info(
             "audio_chunk received: shape=(%d, %d) max=%.3f feature_type=%s",
-            rows, cols, flat_max, data.get("feature_type", "?"),
+            rows,
+            cols,
+            flat_max,
+            data.get("feature_type", "?"),
         )
         chunk = AudioFeatureChunk(
             session_id=self.session_id,

@@ -282,7 +282,9 @@ class FusionOrchestrator:
                 asr_result = await asr_engine.predict(asr_batch, timeout_ms=3000)
                 logger.info(
                     "ASR result: text=%r confidence=%.4f latency=%dms",
-                    asr_result.text, asr_result.confidence, asr_result.inference_latency_ms,
+                    asr_result.text,
+                    asr_result.confidence,
+                    asr_result.inference_latency_ms,
                 )
                 asr_result = dataclasses.replace(
                     asr_result,
