@@ -50,6 +50,7 @@ class WhisperAsrEngine(InferenceEngine):
         self._language: str = "tr"
         self._task: str = "transcribe"
         self._num_beams: int = 1
+        self._n_mels: int = 80
         self._inference_count: int = 0
 
     # ------------------------------------------------------------------
@@ -69,6 +70,8 @@ class WhisperAsrEngine(InferenceEngine):
         self._processor = processor
         self._model = model
         self._model_id = config.model_id
+        feature_size = getattr(processor.feature_extractor, "feature_size", 80)
+        self._n_mels = feature_size if isinstance(feature_size, int) else 80
 
     async def predict(
         self,
@@ -163,20 +166,21 @@ class WhisperAsrEngine(InferenceEngine):
                 f"WhisperAsrEngine: expected 2-D features, got shape {arr.shape}"
             )
 
-        # Client sends (T, 80); Whisper needs (80, T). Detect orientation by
-        # which dimension equals 80 (mel bins). Handles any chunk length T.
+        # Client sends (T, N); Whisper needs (N, T) where N = self._n_mels.
+        # Detect orientation by which dimension equals N.
+        n = self._n_mels
         if arr.ndim == 2:
-            if arr.shape[0] == 80:
-                pass  # already (80, T)
-            elif arr.shape[1] == 80:
-                arr = arr.T  # (T, 80) → (80, T)
-            # else: neither dim is 80 — fall through to zero-pad path below
+            if arr.shape[0] == n:
+                pass  # already (N, T)
+            elif arr.shape[1] == n:
+                arr = arr.T  # (T, N) → (N, T)
+            # else: neither dim matches — fall through to zero-pad below
 
         n_mels, t_len = arr.shape[0], arr.shape[1]
 
-        # Zero-pad to 80 mel bins if fewer
-        if n_mels < 80:
-            arr = np.vstack([arr, np.zeros((80 - n_mels, t_len), dtype=np.float32)])
+        # Zero-pad to n mel bins if fewer
+        if n_mels < n:
+            arr = np.vstack([arr, np.zeros((n - n_mels, t_len), dtype=np.float32)])
 
         # Whisper expects exactly 3000 time frames (30 s × 100 Hz)
         target_t = 3000

@@ -171,13 +171,14 @@ class TestWhisperAsrEnginePredict:
 
 
 class TestWhisperAsrEngineMelPrep:
-    def _make_engine(self, dtype: torch.dtype = torch.float32):
+    def _make_engine(self, dtype: torch.dtype = torch.float32, n_mels: int = 80):
         from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
 
         engine = WhisperAsrEngine()
         engine._model = _make_mock_model(dtype)
         engine._processor = MagicMock()
         engine._device = torch.device("cpu")
+        engine._n_mels = n_mels
         return engine
 
     def test_output_shape_is_batched(self):
@@ -189,6 +190,11 @@ class TestWhisperAsrEngineMelPrep:
         engine = self._make_engine(dtype=torch.float16)
         mel = engine._prepare_mel(np.random.randn(50, 80).astype(np.float32))
         assert mel.dtype == torch.float16
+
+    def test_128_bin_model_large_v3(self):
+        engine = self._make_engine(n_mels=128)
+        mel = engine._prepare_mel(np.random.randn(50, 128).astype(np.float32))
+        assert mel.shape == (1, 128, 3000)
 
     def test_transpose_short_chunk_client_format(self):
         # Real client format: 500ms chunk → 50 frames × 80 mel bins → (50, 80).
