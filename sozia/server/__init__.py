@@ -250,4 +250,9 @@ def create_app(auth: AuthMiddleware | None = None) -> FastAPI:
 # Auth is resolved from SOZIA_API_KEY during lifespan startup, not here.
 # ---------------------------------------------------------------------------
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+)
+
 app = create_app()

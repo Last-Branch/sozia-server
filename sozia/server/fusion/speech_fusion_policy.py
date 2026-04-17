@@ -25,6 +25,13 @@ from sozia.common.models import (
 
 _DEFAULT_CONFIDENCE_THRESHOLD = 0.30
 
+# Lip-reading PARTIAL segments are suppressed unless confidence exceeds this
+# higher bar. The mouth-only classifier (7 % val accuracy, 226 classes) is
+# unreliable as a standalone predictor; a high threshold prevents noise words
+# from appearing on screen while still allowing high-confidence detections
+# through once the model improves.
+_DEFAULT_LIP_PARTIAL_THRESHOLD = 0.70
+
 # Default weights for the weighted-average confidence merge.
 _DEFAULT_ASR_WEIGHT = 0.65
 _DEFAULT_LIP_WEIGHT = 0.35
@@ -46,10 +53,12 @@ class SpeechFusionPolicy(FusionStrategy):
         asr_weight: float = _DEFAULT_ASR_WEIGHT,
         lip_weight: float = _DEFAULT_LIP_WEIGHT,
         confidence_threshold: float = _DEFAULT_CONFIDENCE_THRESHOLD,
+        lip_partial_threshold: float = _DEFAULT_LIP_PARTIAL_THRESHOLD,
     ) -> None:
         self._asr_weight = asr_weight
         self._lip_weight = lip_weight
         self._confidence_threshold = confidence_threshold
+        self._lip_partial_threshold = lip_partial_threshold
         self._partial_ids: dict[str, str] = {}
 
     # ------------------------------------------------------------------
@@ -153,6 +162,8 @@ class SpeechFusionPolicy(FusionStrategy):
         ]
 
     def should_suppress(self, result: ModalityResult) -> bool:
+        if result.modality_type == ModalityType.LIP_READING:
+            return result.confidence < self._lip_partial_threshold
         return result.confidence < self._confidence_threshold
 
     def get_confidence_threshold(self) -> float:
