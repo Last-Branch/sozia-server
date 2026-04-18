@@ -13,7 +13,7 @@ SESSION = "test-session"
 # Helpers: speech chunks peak above -4; silence peaks below -4.
 def _speech(t: int = 50, n: int = 128) -> np.ndarray:
     arr = np.full((t, n), -10.0, dtype=np.float32)
-    arr[0, 0] = -2.0  # one bin well above threshold
+    arr[0, 0] = 0.0  # one bin well above -1.0 threshold
     return arr
 
 

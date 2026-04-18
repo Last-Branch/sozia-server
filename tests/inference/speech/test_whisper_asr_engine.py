@@ -316,7 +316,7 @@ class TestWhisperAsrEngineVad:
 
         # Array with a peak above the threshold → should run inference
         speech = np.full((80, 200), -10.0, dtype=np.float32)
-        speech[0, 0] = -2.0
+        speech[0, 0] = 0.0
         result = asyncio.get_event_loop().run_until_complete(engine.predict(speech))
         assert result.text == "merhaba"
         mock_model.generate.assert_called_once()
@@ -325,7 +325,7 @@ class TestWhisperAsrEngineVad:
         from sozia.server.inference.speech.whisper_asr_engine import WhisperAsrEngine
 
         assert WhisperAsrEngine._has_speech_content(np.array([[-10.0, -8.0]])) is False
-        assert WhisperAsrEngine._has_speech_content(np.array([[-3.0, -10.0]])) is True
+        assert WhisperAsrEngine._has_speech_content(np.array([[0.0, -10.0]])) is True
 
 
 # ---------------------------------------------------------------------------
