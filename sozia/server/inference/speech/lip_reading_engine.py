@@ -167,6 +167,10 @@ class LipReadingEngine(InferenceEngine):
         )
         model.load_state_dict(state_dict)
         model.to(device)
+        # Normalize to fp32: state dicts saved with AMP have fp16 GRU/Linear weights
+        # but fp32 BatchNorm running_mean/running_var (PyTorch never saves BN stats as
+        # fp16). The dtype mismatch causes a RuntimeError in BatchNorm at inference.
+        model.float()
         model.eval()
 
         self._model = model
