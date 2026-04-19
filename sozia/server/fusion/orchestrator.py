@@ -225,6 +225,23 @@ class FusionOrchestrator:
     # Internal pipeline handlers
     # ------------------------------------------------------------------
 
+    async def flush_stale_speech(
+        self,
+        session_id: str,
+        stale_after_s: float,
+        health: list[PipelineHealth],
+        send_fn: Callable[[TranscriptSegment], Awaitable[None] | None],
+    ) -> None:
+        """Run ASR on pending mel frames if no new chunk arrived in ``stale_after_s`` s.
+
+        Called by the session watchdog every second so utterance-end silence
+        is detected even when the client stops sending frames entirely.
+        """
+        asr_batch = self._mel_accumulator.take_if_stale(session_id, stale_after_s)
+        if asr_batch is None:
+            return
+        await self._run_asr(session_id, asr_batch, health, send_fn)
+
     async def flush_speech_pending(
         self,
         session_id: str,

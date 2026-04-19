@@ -11,6 +11,7 @@ SessionHandler only sends them.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import json
 import logging
@@ -92,6 +93,26 @@ class SessionHandler:
     # Inbound loop
     # ------------------------------------------------------------------
 
+    async def _stale_flush_watchdog(self) -> None:
+        """Flush pending speech every second when the client stops sending frames.
+
+        Runs as a background task alongside receive_loop so utterance-end
+        silence is detected even if the client pauses audio delivery.
+        """
+        while True:
+            await asyncio.sleep(1.0)
+            if self.modality_path != ModalityPath.SPEECH:
+                continue
+            try:
+                await self._orchestrator.flush_stale_speech(
+                    self.session_id,
+                    1.0,
+                    list(self.latest_health.values()),
+                    self.send_segment,
+                )
+            except Exception:
+                return
+
     async def receive_loop(self) -> None:
         """Read messages from the WebSocket and dispatch by type.
 
@@ -99,6 +120,13 @@ class SessionHandler:
         connection is closed (``WebSocketDisconnect``).  Unknown message
         types are silently ignored.
         """
+        watchdog = asyncio.create_task(self._stale_flush_watchdog())
+        try:
+            await self._receive_loop_inner()
+        finally:
+            watchdog.cancel()
+
+    async def _receive_loop_inner(self) -> None:
         while True:
             try:
                 data = await self._ws.receive_json()

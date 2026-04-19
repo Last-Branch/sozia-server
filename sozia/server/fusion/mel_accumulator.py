@@ -151,6 +151,25 @@ class MelAccumulator:
             return None
         return self._flush(session_id)
 
+    def take_if_stale(
+        self, session_id: str, stale_after_s: float = 1.0
+    ) -> np.ndarray | None:
+        """Flush if no new chunk has arrived for at least ``stale_after_s`` seconds.
+
+        Called by the session watchdog so silence between utterances is
+        detected even when the client stops sending frames entirely.
+
+        Returns:
+            Concatenated buffer on flush, ``None`` if nothing pending or
+            the last frame arrived too recently.
+        """
+        if self._frame_counts.get(session_id, 0) == 0:
+            return None
+        last = self._last_push_time.get(session_id)
+        if last is None or (time.monotonic() - last) < stale_after_s:
+            return None
+        return self._flush(session_id)
+
     def reset(self, session_id: str) -> None:
         """Discard all buffered state for a session.
 
