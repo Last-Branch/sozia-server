@@ -86,6 +86,7 @@ class GlossToTextEngine(InferenceEngine):
         self._repetition_penalty = config.params.get("repetition_penalty", 1.15)
         self._use_autocast = config.params.get("use_autocast", True)
         load_in_4bit = config.params.get("load_in_4bit", True)
+        merged = config.params.get("merged", False)
 
         model, tokenizer = await asyncio.to_thread(
             self._load_model_sync,
@@ -93,6 +94,7 @@ class GlossToTextEngine(InferenceEngine):
             adapter_path=config.weights_path,
             device=config.device,
             load_in_4bit=load_in_4bit,
+            merged=merged,
         )
 
         self._model = model
@@ -170,11 +172,13 @@ class GlossToTextEngine(InferenceEngine):
         adapter_path: str,
         device: str,
         load_in_4bit: bool,
+        merged: bool = False,
     ) -> tuple:
         """Synchronous model + tokenizer loading (runs in thread)."""
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        tokenizer = AutoTokenizer.from_pretrained(base_model_id)
+        model_path = adapter_path if merged else base_model_id
+        tokenizer = AutoTokenizer.from_pretrained(model_path)
         tokenizer.pad_token = tokenizer.eos_token
 
         load_kwargs: dict[str, Any] = {
@@ -191,13 +195,12 @@ class GlossToTextEngine(InferenceEngine):
                 bnb_4bit_compute_dtype=torch.bfloat16,
             )
 
-        base_model = AutoModelForCausalLM.from_pretrained(
-            base_model_id, **load_kwargs,
-        )
+        model = AutoModelForCausalLM.from_pretrained(model_path, **load_kwargs)
 
-        from peft import PeftModel
+        if not merged:
+            from peft import PeftModel
+            model = PeftModel.from_pretrained(model, adapter_path)
 
-        model = PeftModel.from_pretrained(base_model, adapter_path)
         model.eval()
         return model, tokenizer
 
