@@ -323,10 +323,6 @@ class FusionOrchestrator:
         send_fn: Callable[[TranscriptSegment], Awaitable[None] | None],
         features: AudioFeatureChunk | None = None,
     ) -> None:
-        # Whisper hallucinates on very short clips; skip batches under 1 s.
-        if asr_batch.shape[0] < 100:
-            logger.debug("asr_batch too short (%d frames), skipping", asr_batch.shape[0])
-            return
         path_engines = self._engines.get(ModalityPath.SPEECH, {})
         asr_entry = path_engines.get(ModalityType.ASR)
         if asr_entry is None:
