@@ -16,8 +16,8 @@ from __future__ import annotations
 import numpy as np
 
 # log10-mel floor for speech detection. Client sends Math.log10(energy + 1e-10);
-# real speech peaks at +1 to +3, background noise stays below −1.
-_SPEECH_ENERGY_THRESHOLD: float = -1.0
+# real speech peaks at +1 to +3; inter-word gaps and background stay below 0.3.
+_SPEECH_ENERGY_THRESHOLD: float = 0.3
 
 # Consecutive silence frames required to trigger a flush. At 100 Hz this is 1 s.
 # A shorter gap (e.g. between words) resets when the next speech chunk arrives.

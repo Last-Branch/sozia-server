@@ -12,7 +12,7 @@ SESSION = "test-session"
 
 def _speech(t: int = 50, n: int = 128) -> np.ndarray:
     arr = np.full((t, n), -10.0, dtype=np.float32)
-    arr[0, 0] = 0.0  # one bin well above -1.0 threshold
+    arr[0, 0] = 1.0  # one bin well above 0.3 threshold
     return arr
 
 
