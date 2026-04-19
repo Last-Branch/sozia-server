@@ -155,7 +155,7 @@ class MelAccumulator:
         self,
         session_id: str,
         stale_after_s: float = 1.0,
-        min_frames: int = 200,
+        min_frames: int = 100,
     ) -> np.ndarray | None:
         """Flush if no new chunk has arrived for at least ``stale_after_s`` seconds.
 
