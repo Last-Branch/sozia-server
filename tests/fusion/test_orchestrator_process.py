@@ -78,7 +78,7 @@ def _audio_chunk() -> AudioFeatureChunk:
     return AudioFeatureChunk(
         session_id=_SESSION,
         timestamp_ms=0,
-        features=[[0.1, 0.2, 0.3]] * 10,
+        features=[[1.0, 1.5, 2.0]] * 100,
         feature_type="mfcc",
         sample_rate_hz=16000,
         chunk_duration_ms=500,
@@ -460,7 +460,7 @@ class TestProcessSpeech:
         chunk = AudioFeatureChunk(
             session_id=_SESSION,
             timestamp_ms=5000,
-            features=[[1.0, 1.5]] * 10,
+            features=[[1.0, 1.5]] * 100,
             feature_type="mfcc",
             sample_rate_hz=16000,
             chunk_duration_ms=750,
