@@ -155,17 +155,12 @@ class MelAccumulator:
         self,
         session_id: str,
         stale_after_s: float = 1.0,
-        min_frames: int = 100,
     ) -> np.ndarray | None:
         """Flush if no new chunk has arrived for at least ``stale_after_s`` seconds.
 
-        Does not flush if fewer than ``min_frames`` are buffered — the frames
-        are kept so they can accumulate further. This prevents discarding
-        partial speech that Whisper could not reliably transcribe.
-
         Returns:
-            Concatenated buffer on flush, ``None`` if nothing pending,
-            not stale yet, or buffer is below the minimum size.
+            Concatenated buffer on flush, ``None`` if nothing pending or
+            not stale yet.
         """
         count = self._frame_counts.get(session_id, 0)
         if count == 0:
@@ -173,8 +168,6 @@ class MelAccumulator:
         last = self._last_push_time.get(session_id)
         if last is None or (time.monotonic() - last) < stale_after_s:
             return None
-        if count < min_frames:
-            return None  # keep buffering until enough frames accumulate
         return self._flush(session_id)
 
     def reset(self, session_id: str) -> None:
