@@ -441,7 +441,15 @@ class FusionOrchestrator:
         if not isinstance(features, LandmarkFrame):
             return  # SIGN path only accepts LandmarkFrame.
 
+        pending = self._accumulator.pending_count(session_id)
         batch = self._accumulator.add(features)
+        logger.info(
+            "frame_accumulator: pending=%d/%d hands=%s",
+            pending + 1,
+            self._accumulator._window_size,
+            features.left_hand_landmarks is not None
+            or features.right_hand_landmarks is not None,
+        )
         if batch is None:
             return  # Window not full yet.
 
@@ -458,7 +466,18 @@ class FusionOrchestrator:
         try:
             tsl_result = await tsl_engine.predict(batch)
         except InferenceTimeoutError:
+            logger.warning("TSL inference timed out — window discarded")
             return  # No PARTIAL to emit without TSL output.
+
+        sign_policy = self._policies.get(ModalityPath.SIGN)
+        suppressed = sign_policy is not None and sign_policy.should_suppress(tsl_result)
+        logger.info(
+            "TSL result: gloss=%r confidence=%.4f latency=%dms suppressed=%s",
+            tsl_result.text,
+            tsl_result.confidence,
+            tsl_result.inference_latency_ms,
+            suppressed,
+        )
 
         tsl_segments = await self.process_features(
             session_id,
@@ -481,6 +500,7 @@ class FusionOrchestrator:
         try:
             gloss_result = await gloss_engine.predict(tsl_result.text)
         except InferenceTimeoutError:
+            logger.warning("GlossToText timed out — promoting gloss to FINAL")
             # Promote TSL gloss to FINAL with a confidence penalty.
             final_segs = self._promote_gloss_to_final(
                 session_id,
@@ -490,6 +510,13 @@ class FusionOrchestrator:
             for seg in final_segs:
                 await _maybe_await(send_fn(seg))
             return
+
+        logger.info(
+            "GlossToText result: text=%r confidence=%.4f latency=%dms",
+            gloss_result.text,
+            gloss_result.confidence,
+            gloss_result.inference_latency_ms,
+        )
 
         final_segments = await self.process_features(
             session_id,
