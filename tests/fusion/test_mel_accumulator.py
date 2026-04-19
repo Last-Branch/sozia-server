@@ -142,6 +142,78 @@ class TestMelAccumulatorOutput:
 
 
 # ---------------------------------------------------------------------------
+# take_pending (force flush on session end)
+# ---------------------------------------------------------------------------
+
+
+class TestMelAccumulatorTakePending:
+    def test_take_pending_returns_buffered_frames(self):
+        acc = MelAccumulator()
+        acc.push(SESSION, _speech(t=50))
+        result = acc.take_pending(SESSION)
+        assert result is not None
+        assert result.shape[0] == 50
+
+    def test_take_pending_resets_buffer(self):
+        acc = MelAccumulator()
+        acc.push(SESSION, _speech(t=50))
+        acc.take_pending(SESSION)
+        assert acc.pending_frames(SESSION) == 0
+
+    def test_take_pending_returns_none_when_empty(self):
+        acc = MelAccumulator()
+        assert acc.take_pending(SESSION) is None
+
+    def test_take_pending_returns_none_after_only_silence(self):
+        acc = MelAccumulator()
+        acc.push(SESSION, _silence(t=50))
+        assert acc.take_pending(SESSION) is None
+
+
+# ---------------------------------------------------------------------------
+# Wall-clock gap detection
+# ---------------------------------------------------------------------------
+
+
+class TestMelAccumulatorWallClockGap:
+    def test_gap_flushes_on_next_chunk(self, monkeypatch):
+        # Simulate a 2 s wall-clock gap between pushes (> min_silence_frames=100).
+        acc = MelAccumulator(min_silence_frames=100)
+        t = [0.0]
+
+        monkeypatch.setattr("sozia.server.fusion.mel_accumulator.time.monotonic", lambda: t[0])
+        acc.push(SESSION, _speech(t=50))
+
+        t[0] = 2.0  # 2 s later → 200 frame gap > 100
+        result = acc.push(SESSION, _speech(t=20))
+        assert result is not None
+        assert result.shape[0] == 50  # old buffer flushed
+
+    def test_short_gap_does_not_flush(self, monkeypatch):
+        acc = MelAccumulator(min_silence_frames=100)
+        t = [0.0]
+
+        monkeypatch.setattr("sozia.server.fusion.mel_accumulator.time.monotonic", lambda: t[0])
+        acc.push(SESSION, _speech(t=50))
+
+        t[0] = 0.5  # 0.5 s → 50 frames < 100
+        result = acc.push(SESSION, _speech(t=20))
+        assert result is None
+        assert acc.pending_frames(SESSION) == 70
+
+    def test_gap_starts_new_buffer_with_current_chunk(self, monkeypatch):
+        acc = MelAccumulator(min_silence_frames=100)
+        t = [0.0]
+
+        monkeypatch.setattr("sozia.server.fusion.mel_accumulator.time.monotonic", lambda: t[0])
+        acc.push(SESSION, _speech(t=50))
+
+        t[0] = 2.0
+        acc.push(SESSION, _speech(t=20))  # triggers flush; new chunk buffered
+        assert acc.pending_frames(SESSION) == 20
+
+
+# ---------------------------------------------------------------------------
 # Reset
 # ---------------------------------------------------------------------------
 

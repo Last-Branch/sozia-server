@@ -2,16 +2,19 @@
 
 WhisperAsrEngine produces better, sentence-level transcriptions when given a
 full utterance rather than 500 ms chunks. MelAccumulator holds incoming mel
-frames per session and flushes when one of two conditions is met:
+frames per session and flushes when one of three conditions is met:
 
   1. 1 s of consecutive silence after speech (utterance boundary).
   2. Buffer reaches ``max_frames`` (15 s ceiling at 100 Hz).
+  3. Wall-clock gap since the last chunk exceeds 1 s (client paused sending).
 
 Lip-reading continues to fire on every short chunk (PARTIAL updates).
 ASR fires on each flush (FINAL output).
 """
 
 from __future__ import annotations
+
+import time
 
 import numpy as np
 
@@ -23,6 +26,9 @@ _SPEECH_ENERGY_THRESHOLD: float = 0.3
 # A shorter gap (e.g. between words) resets when the next speech chunk arrives.
 _MIN_SILENCE_FRAMES: int = 100  # 1000 ms at 100 Hz
 
+# Assumed frame rate for converting wall-clock gaps to frame counts.
+_FRAME_RATE_HZ: int = 100
+
 
 class MelAccumulator:
     """Buffers mel-spectrogram chunks per session; emits on utterance boundary.
@@ -33,6 +39,11 @@ class MelAccumulator:
         batch = acc.push(session_id, chunk_features)
         if batch is not None:
             result = await asr_engine.predict(batch)  # shape (T_total, N)
+
+        # On clean session end, flush whatever is pending:
+        batch = acc.take_pending(session_id)
+        if batch is not None:
+            result = await asr_engine.predict(batch)
 
     Args:
         max_frames: Hard ceiling (frames). Default 1500 = 15 s at 100 Hz.
@@ -56,6 +67,7 @@ class MelAccumulator:
         self._has_seen_speech: dict[str, bool] = {}
         self._frame_counts: dict[str, int] = {}
         self._silence_frame_counts: dict[str, int] = {}
+        self._last_push_time: dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -73,11 +85,34 @@ class MelAccumulator:
             Concatenated buffer of shape ``(T_total, N)`` on flush;
             ``None`` otherwise.
         """
+        now = time.monotonic()
         is_speech = float(np.max(chunk)) > self._speech_threshold
 
         buf = self._buffers.setdefault(session_id, [])
         seen = self._has_seen_speech.get(session_id, False)
         count = self._frame_counts.get(session_id, 0)
+
+        # Wall-clock gap since last chunk counts as silence even when the client
+        # stopped sending frames (e.g. mic paused, app backgrounded).
+        last = self._last_push_time.get(session_id)
+        self._last_push_time[session_id] = now
+        if last is not None and seen and count > 0:
+            gap_frames = int((now - last) * _FRAME_RATE_HZ)
+            if gap_frames > 0:
+                silence = self._silence_frame_counts.get(session_id, 0) + gap_frames
+                self._silence_frame_counts[session_id] = silence
+                if silence >= self._min_silence_frames:
+                    flushed = self._flush(session_id)
+                    buf = self._buffers.setdefault(session_id, [])
+                    # Re-read seen/count after flush reset.
+                    seen = False
+                    count = 0
+                    if is_speech:
+                        self._has_seen_speech[session_id] = True
+                        buf.append(chunk)
+                        self._frame_counts[session_id] = chunk.shape[0]
+                        self._last_push_time[session_id] = now
+                    return flushed
 
         if is_speech:
             self._silence_frame_counts[session_id] = 0  # reset consecutive silence
@@ -103,6 +138,19 @@ class MelAccumulator:
 
         return None
 
+    def take_pending(self, session_id: str) -> np.ndarray | None:
+        """Flush whatever is buffered, ignoring silence/threshold.
+
+        Intended for clean session teardown (``session_end`` message) so
+        partial utterances are not discarded.
+
+        Returns:
+            Concatenated buffer, or ``None`` if nothing was buffered.
+        """
+        if self._frame_counts.get(session_id, 0) == 0:
+            return None
+        return self._flush(session_id)
+
     def reset(self, session_id: str) -> None:
         """Discard all buffered state for a session.
 
@@ -112,6 +160,7 @@ class MelAccumulator:
         self._has_seen_speech.pop(session_id, None)
         self._frame_counts.pop(session_id, None)
         self._silence_frame_counts.pop(session_id, None)
+        self._last_push_time.pop(session_id, None)
 
     def pending_frames(self, session_id: str) -> int:
         """Return buffered frame count for a session (0 if none)."""
