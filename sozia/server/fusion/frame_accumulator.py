@@ -60,12 +60,14 @@ def _flatten_pose(arr: list[list[float]] | None) -> np.ndarray:
 
 def _frame_to_row(frame: LandmarkFrame) -> np.ndarray:
     """Convert a single LandmarkFrame to a 1-D feature vector of length FEATURE_DIM."""
-    return np.concatenate([
-        _flatten_pose(frame.pose_landmarks),
-        _flatten_or_zeros(frame.face_landmarks, FACE_LANDMARK_COUNT),
-        _flatten_or_zeros(frame.left_hand_landmarks, HAND_LANDMARK_COUNT),
-        _flatten_or_zeros(frame.right_hand_landmarks, HAND_LANDMARK_COUNT),
-    ])
+    return np.concatenate(
+        [
+            _flatten_pose(frame.pose_landmarks),
+            _flatten_or_zeros(frame.face_landmarks, FACE_LANDMARK_COUNT),
+            _flatten_or_zeros(frame.left_hand_landmarks, HAND_LANDMARK_COUNT),
+            _flatten_or_zeros(frame.right_hand_landmarks, HAND_LANDMARK_COUNT),
+        ]
+    )
 
 
 class FrameAccumulator:
@@ -83,9 +85,12 @@ class FrameAccumulator:
             Defaults to 30, matching a typical ~1 s window at 30 fps.
     """
 
+    _MIN_FLUSH_FRAMES: int = 10  # ignore flushes shorter than this
+
     def __init__(self, window_size: int = 30) -> None:
         self._window_size = window_size
         self._buffers: dict[str, list[LandmarkFrame]] = {}
+        self._prev_hands: dict[str, bool] = {}  # last known hand-presence per session
 
     # ------------------------------------------------------------------
     # Public API
@@ -94,19 +99,40 @@ class FrameAccumulator:
     def add(self, frame: LandmarkFrame) -> np.ndarray | None:
         """Append a frame to the session buffer.
 
+        Flushes the buffer early when hands disappear after being present
+        (falling edge), so a sign is never split across two windows.
+        Flushes at window_size normally.
+
         Args:
             frame: A LandmarkFrame received from the WebSocket gateway.
 
         Returns:
-            A numpy array of shape ``(window_size, FEATURE_DIM)`` when the
-            buffer reaches ``window_size``, otherwise ``None``.
+            A numpy array of shape ``(T, FEATURE_DIM)`` on flush, else ``None``.
         """
-        buf = self._buffers.setdefault(frame.session_id, [])
+        sid = frame.session_id
+        buf = self._buffers.setdefault(sid, [])
+        has_hands = (
+            frame.left_hand_landmarks is not None
+            or frame.right_hand_landmarks is not None
+        )
+        prev_hands = self._prev_hands.get(sid, False)
+        self._prev_hands[sid] = has_hands
+
+        # Falling edge: hands just disappeared — flush what we have.
+        if prev_hands and not has_hands:
+            if len(buf) >= self._MIN_FLUSH_FRAMES:
+                batch = self._to_numpy(buf)
+                self._buffers[sid] = []
+                return batch
+            # Too few frames — discard noise.
+            self._buffers[sid] = []
+            return None
+
         buf.append(frame)
 
         if len(buf) >= self._window_size:
             batch = self._to_numpy(buf)
-            self._buffers[frame.session_id] = []
+            self._buffers[sid] = []
             return batch
 
         return None
@@ -120,6 +146,7 @@ class FrameAccumulator:
             session_id: The session whose buffer should be cleared.
         """
         self._buffers.pop(session_id, None)
+        self._prev_hands.pop(session_id, None)
 
     def pending_count(self, session_id: str) -> int:
         """Return the number of frames currently buffered for a session.
