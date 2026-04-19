@@ -134,17 +134,37 @@ class SpeechFusionPolicy(FusionStrategy):
             )
         ]
 
+    def emit_lip_partial(
+        self,
+        result: ModalityResult,
+        session_id: str,
+    ) -> list[TranscriptSegment]:
+        """Emit a lip-reading PARTIAL, replacing the previous PARTIAL for this session."""
+        if self.should_suppress(result):
+            return []
+        previous_id = self._partial_ids.get(session_id)
+        seg_id = str(uuid.uuid4())
+        self._partial_ids[session_id] = seg_id
+        return [
+            self._make_segment(
+                session_id=session_id,
+                status=SegmentStatus.PARTIAL,
+                text=result.text,
+                source=ModalityType.LIP_READING,
+                confidence=result.confidence,
+                timestamp_ms=result.timestamp_ms,
+                duration_ms=result.duration_ms,
+                replaces_segment_id=previous_id,
+                segment_id=seg_id,
+            )
+        ]
+
     def emit_asr_final(
         self,
         result: ModalityResult,
         session_id: str,
     ) -> list[TranscriptSegment]:
-        """Emit a FINAL segment from an accumulated ASR result.
-
-        Called when the MelAccumulator flushes after an utterance boundary.
-        The result covers a full sentence so it goes straight to FINAL,
-        replacing the last lip-reading PARTIAL stored for this session.
-        """
+        """Emit a standalone ASR FINAL when no lip result is cached."""
         if self.should_suppress(result):
             return []
         replaces = self._partial_ids.pop(session_id, None)
@@ -157,6 +177,62 @@ class SpeechFusionPolicy(FusionStrategy):
                 confidence=result.confidence,
                 timestamp_ms=result.timestamp_ms,
                 duration_ms=result.duration_ms,
+                replaces_segment_id=replaces,
+            )
+        ]
+
+    def emit_fused_final(
+        self,
+        asr_result: ModalityResult,
+        lip_result: ModalityResult,
+        session_id: str,
+    ) -> list[TranscriptSegment]:
+        """Emit a FUSED FINAL merging ASR sentence with cached lip result."""
+        if lip_result.text and lip_result.confidence >= asr_result.confidence:
+            merged_text = lip_result.text
+            merged_source = ModalityType.LIP_READING
+        else:
+            merged_text = asr_result.text
+            merged_source = ModalityType.ASR
+        merged_confidence = min(
+            1.0,
+            self._asr_weight * asr_result.confidence
+            + self._lip_weight * lip_result.confidence,
+        )
+        if merged_confidence < self._confidence_threshold:
+            return []
+        replaces = self._partial_ids.pop(session_id, None)
+        return [
+            self._make_segment(
+                session_id=session_id,
+                status=SegmentStatus.FINAL,
+                text=merged_text,
+                source=merged_source,
+                confidence=merged_confidence,
+                timestamp_ms=asr_result.timestamp_ms,
+                duration_ms=max(asr_result.duration_ms, lip_result.duration_ms),
+                replaces_segment_id=replaces,
+            )
+        ]
+
+    def promote_partial_to_final(
+        self,
+        session_id: str,
+        lip_result: ModalityResult,
+    ) -> list[TranscriptSegment]:
+        """Promote cached lip PARTIAL to FINAL when ASR times out."""
+        if self.should_suppress(lip_result):
+            return []
+        replaces = self._partial_ids.pop(session_id, None)
+        return [
+            self._make_segment(
+                session_id=session_id,
+                status=SegmentStatus.FINAL,
+                text=lip_result.text,
+                source=ModalityType.LIP_READING,
+                confidence=lip_result.confidence,
+                timestamp_ms=lip_result.timestamp_ms,
+                duration_ms=lip_result.duration_ms,
                 replaces_segment_id=replaces,
             )
         ]
