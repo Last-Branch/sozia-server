@@ -225,6 +225,26 @@ class FusionOrchestrator:
     # Internal pipeline handlers
     # ------------------------------------------------------------------
 
+    async def flush_speech_pending(
+        self,
+        session_id: str,
+        health: list[PipelineHealth],
+        send_fn: Callable[[TranscriptSegment], Awaitable[None] | None],
+    ) -> None:
+        """Run ASR on any buffered mel frames and emit a FINAL segment.
+
+        Called on clean session teardown (``session_end``) so partial
+        utterances are not silently discarded. No-op if nothing is buffered.
+        """
+        asr_batch = self._mel_accumulator.take_pending(session_id)
+        if asr_batch is None:
+            return
+        path_engines = self._engines.get(ModalityPath.SPEECH, {})
+        asr_entry = path_engines.get(ModalityType.ASR)
+        if asr_entry is None:
+            return
+        await self._run_asr(session_id, asr_batch, health, send_fn)
+
     async def _process_speech(
         self,
         session_id: str,
@@ -276,33 +296,46 @@ class FusionOrchestrator:
             asr_batch is not None,
         )
         if asr_batch is not None and asr_entry is not None:
-            asr_engine, _ = asr_entry
-            try:
-                # Use a longer timeout — the batch covers up to 15 s of audio.
-                asr_result = await asr_engine.predict(asr_batch, timeout_ms=3000)
-                logger.info(
-                    "ASR result: text=%r confidence=%.4f latency=%dms",
-                    asr_result.text,
-                    asr_result.confidence,
-                    asr_result.inference_latency_ms,
-                )
+            await self._run_asr(session_id, asr_batch, health, send_fn, features)
+
+    async def _run_asr(
+        self,
+        session_id: str,
+        asr_batch: np.ndarray,
+        health: list[PipelineHealth],
+        send_fn: Callable[[TranscriptSegment], Awaitable[None] | None],
+        features: AudioFeatureChunk | None = None,
+    ) -> None:
+        path_engines = self._engines.get(ModalityPath.SPEECH, {})
+        asr_entry = path_engines.get(ModalityType.ASR)
+        if asr_entry is None:
+            return
+        asr_engine, _ = asr_entry
+        try:
+            asr_result = await asr_engine.predict(asr_batch, timeout_ms=3000)
+            logger.info(
+                "ASR result: text=%r confidence=%.4f latency=%dms",
+                asr_result.text,
+                asr_result.confidence,
+                asr_result.inference_latency_ms,
+            )
+            if features is not None:
                 asr_result = dataclasses.replace(
                     asr_result,
                     timestamp_ms=features.timestamp_ms,
                     duration_ms=features.chunk_duration_ms,
                 )
-                policy = self._policies.get(ModalityPath.SPEECH)
-                if isinstance(policy, SpeechFusionPolicy):
-                    asr_segments = policy.emit_asr_final(asr_result, session_id)
-                else:
-                    # Fallback for non-standard policies.
-                    asr_segments = await self.process_features(
-                        session_id, [asr_result], health, ModalityPath.SPEECH
-                    )
-                for seg in asr_segments:
-                    await _maybe_await(send_fn(seg))
-            except InferenceTimeoutError:
-                pass
+            policy = self._policies.get(ModalityPath.SPEECH)
+            if isinstance(policy, SpeechFusionPolicy):
+                asr_segments = policy.emit_asr_final(asr_result, session_id)
+            else:
+                asr_segments = await self.process_features(
+                    session_id, [asr_result], health, ModalityPath.SPEECH
+                )
+            for seg in asr_segments:
+                await _maybe_await(send_fn(seg))
+        except InferenceTimeoutError:
+            pass
 
     async def _process_sign(
         self,

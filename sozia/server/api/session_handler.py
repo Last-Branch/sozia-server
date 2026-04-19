@@ -108,6 +108,12 @@ class SessionHandler:
             msg_type = data.get("type")
 
             if msg_type == "session_end":
+                if self.modality_path == ModalityPath.SPEECH:
+                    await self._orchestrator.flush_speech_pending(
+                        self.session_id,
+                        list(self.latest_health.values()),
+                        self.send_segment,
+                    )
                 break
             elif msg_type == "landmark_frame":
                 await self._handle_landmark(data)
