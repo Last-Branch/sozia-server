@@ -109,11 +109,14 @@ class SessionHandler:
 
             if msg_type == "session_end":
                 if self.modality_path == ModalityPath.SPEECH:
-                    await self._orchestrator.flush_speech_pending(
-                        self.session_id,
-                        list(self.latest_health.values()),
-                        self.send_segment,
-                    )
+                    try:
+                        await self._orchestrator.flush_speech_pending(
+                            self.session_id,
+                            list(self.latest_health.values()),
+                            self.send_segment,
+                        )
+                    except (WebSocketDisconnect, Exception):
+                        pass
                 break
             elif msg_type == "landmark_frame":
                 await self._handle_landmark(data)
