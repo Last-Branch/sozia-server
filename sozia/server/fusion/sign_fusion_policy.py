@@ -25,7 +25,7 @@ from sozia.common.models import (
     TranscriptSegment,
 )
 
-_DEFAULT_CONFIDENCE_THRESHOLD = 0.30
+_DEFAULT_CONFIDENCE_THRESHOLD = 0.55
 
 
 class SignFusionPolicy(FusionStrategy):
