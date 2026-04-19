@@ -340,7 +340,7 @@ class FusionOrchestrator:
                 asr_result.confidence,
                 asr_result.inference_latency_ms,
             )
-            if asr_result.confidence < 0.30:
+            if asr_result.confidence < 0.45:
                 logger.info(
                     "ASR result suppressed (confidence=%.4f < 0.30)", asr_result.confidence
                 )

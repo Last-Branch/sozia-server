@@ -264,7 +264,6 @@ class WhisperAsrEngine(InferenceEngine):
                 task=self._task,
                 num_beams=self._num_beams,
                 no_repeat_ngram_size=3,
-                repetition_penalty=1.3,
                 return_dict_in_generate=True,
                 output_scores=True,
             )
