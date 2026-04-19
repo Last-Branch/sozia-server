@@ -78,7 +78,8 @@ class GlossToTextEngine(InferenceEngine):
 
     async def load_model(self, config: ModelConfig) -> None:
         self._base_model_id = config.params.get(
-            "base_model_id", "google/gemma-2-9b-it",
+            "base_model_id",
+            "google/gemma-2-9b-it",
         )
         self._instruction = config.params.get("instruction", _DEFAULT_INSTRUCTION)
         self._max_new_tokens = config.params.get("max_new_tokens", 128)
@@ -183,7 +184,7 @@ class GlossToTextEngine(InferenceEngine):
 
         load_kwargs: dict[str, Any] = {
             "device_map": "auto" if device == "cuda" else None,
-            "torch_dtype": torch.bfloat16,
+            "dtype": torch.bfloat16,
             "attn_implementation": "sdpa",
         }
 
@@ -199,6 +200,7 @@ class GlossToTextEngine(InferenceEngine):
 
         if not merged:
             from peft import PeftModel
+
             model = PeftModel.from_pretrained(model, adapter_path)
 
         model.eval()
