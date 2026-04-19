@@ -479,6 +479,9 @@ class FusionOrchestrator:
             suppressed,
         )
 
+        if suppressed:
+            return  # Low-confidence TSL — skip GlossToText and emit nothing.
+
         tsl_segments = await self.process_features(
             session_id,
             [tsl_result],
