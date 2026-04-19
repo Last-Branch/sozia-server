@@ -24,7 +24,7 @@ _SPEECH_ENERGY_THRESHOLD: float = 0.3
 
 # Consecutive silence frames required to trigger a flush. At 100 Hz this is 1 s.
 # A shorter gap (e.g. between words) resets when the next speech chunk arrives.
-_MIN_SILENCE_FRAMES: int = 50  # 500 ms at 100 Hz
+_MIN_SILENCE_FRAMES: int = 100  # 1000 ms at 100 Hz
 
 # Assumed frame rate for converting wall-clock gaps to frame counts.
 _FRAME_RATE_HZ: int = 100
