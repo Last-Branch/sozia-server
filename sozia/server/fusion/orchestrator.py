@@ -441,17 +441,16 @@ class FusionOrchestrator:
         if not isinstance(features, LandmarkFrame):
             return  # SIGN path only accepts LandmarkFrame.
 
-        pending = self._accumulator.pending_count(session_id)
         batch = self._accumulator.add(features)
+        if batch is None:
+            return  # Window not full yet.
+
         logger.info(
-            "frame_accumulator: pending=%d/%d hands=%s",
-            pending + 1,
-            self._accumulator._window_size,
+            "frame_accumulator: flushed %d frames (hands=%s)",
+            batch.shape[0],
             features.left_hand_landmarks is not None
             or features.right_hand_landmarks is not None,
         )
-        if batch is None:
-            return  # Window not full yet.
 
         path_engines = self._engines.get(ModalityPath.SIGN, {})
         tsl_entry = path_engines.get(ModalityType.TSL_RECOGNITION)
