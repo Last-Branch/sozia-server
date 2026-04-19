@@ -91,6 +91,7 @@ class FrameAccumulator:
         self._window_size = window_size
         self._buffers: dict[str, list[LandmarkFrame]] = {}
         self._prev_hands: dict[str, bool] = {}  # last known hand-presence per session
+        self._hands_in_window: dict[str, bool] = {}  # any hands seen in current window
 
     # ------------------------------------------------------------------
     # Public API
@@ -117,23 +118,29 @@ class FrameAccumulator:
         )
         prev_hands = self._prev_hands.get(sid, False)
         self._prev_hands[sid] = has_hands
+        if has_hands:
+            self._hands_in_window[sid] = True
 
         # Falling edge: hands just disappeared — flush what we have.
         if prev_hands and not has_hands:
-            if len(buf) >= self._MIN_FLUSH_FRAMES:
+            if len(buf) >= self._MIN_FLUSH_FRAMES and self._hands_in_window.get(sid):
                 batch = self._to_numpy(buf)
                 self._buffers[sid] = []
+                self._hands_in_window[sid] = False
                 return batch
-            # Too few frames — discard noise.
+            # Too few frames or no hands — discard noise.
             self._buffers[sid] = []
+            self._hands_in_window[sid] = False
             return None
 
         buf.append(frame)
 
         if len(buf) >= self._window_size:
             batch = self._to_numpy(buf)
+            had_hands = self._hands_in_window.get(sid, False)
             self._buffers[sid] = []
-            return batch
+            self._hands_in_window[sid] = False
+            return batch if had_hands else None
 
         return None
 
@@ -147,6 +154,7 @@ class FrameAccumulator:
         """
         self._buffers.pop(session_id, None)
         self._prev_hands.pop(session_id, None)
+        self._hands_in_window.pop(session_id, None)
 
     def pending_count(self, session_id: str) -> int:
         """Return the number of frames currently buffered for a session.
