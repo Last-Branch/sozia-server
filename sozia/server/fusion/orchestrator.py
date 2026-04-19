@@ -87,6 +87,8 @@ class FusionOrchestrator:
         self._mel_accumulator = MelAccumulator(max_frames=mel_max_frames)
         # Per-session face landmark cache (SPEECH path — fed to LipReadingEngine).
         self._face_cache: dict[str, np.ndarray] = {}
+        # Most recent lip-reading result per session; fused with the next ASR flush.
+        self._last_lip_result: dict[str, ModalityResult] = {}
 
     # ------------------------------------------------------------------
     # Registration
@@ -140,6 +142,7 @@ class FusionOrchestrator:
             session_id: The session whose cached state should be discarded.
         """
         self._face_cache.pop(session_id, None)
+        self._last_lip_result.pop(session_id, None)
         self._accumulator.reset(session_id)
         self._mel_accumulator.reset(session_id)
 
@@ -297,6 +300,8 @@ class FusionOrchestrator:
                     timestamp_ms=features.timestamp_ms,
                     duration_ms=features.chunk_duration_ms,
                 )
+                # Cache for fusion with the next ASR flush.
+                self._last_lip_result[session_id] = lip_result
                 lip_segments = await self.process_features(
                     session_id, [lip_result], health, ModalityPath.SPEECH
                 )
@@ -350,8 +355,12 @@ class FusionOrchestrator:
                 duration_ms=features.chunk_duration_ms if features is not None else 0,
             )
             policy = self._policies.get(ModalityPath.SPEECH)
+            lip_cached = self._last_lip_result.pop(session_id, None)
             if isinstance(policy, SpeechFusionPolicy):
-                asr_segments = policy.emit_asr_final(asr_result, session_id)
+                if lip_cached is not None:
+                    asr_segments = policy.emit_fused_final(asr_result, lip_cached, session_id)
+                else:
+                    asr_segments = policy.emit_asr_final(asr_result, session_id)
             else:
                 asr_segments = await self.process_features(
                     session_id, [asr_result], health, ModalityPath.SPEECH
@@ -359,7 +368,12 @@ class FusionOrchestrator:
             for seg in asr_segments:
                 await _maybe_await(send_fn(seg))
         except InferenceTimeoutError:
-            pass
+            lip_cached = self._last_lip_result.pop(session_id, None)
+            if lip_cached is not None:
+                policy = self._policies.get(ModalityPath.SPEECH)
+                if isinstance(policy, SpeechFusionPolicy):
+                    for seg in policy.promote_partial_to_final(session_id, lip_cached):
+                        await _maybe_await(send_fn(seg))
 
     async def _process_sign(
         self,
