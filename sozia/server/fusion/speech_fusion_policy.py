@@ -134,6 +134,31 @@ class SpeechFusionPolicy(FusionStrategy):
             )
         ]
 
+    def emit_lip_partial(
+        self,
+        result: ModalityResult,
+        session_id: str,
+    ) -> list[TranscriptSegment]:
+        """Emit a lip-reading PARTIAL, replacing the previous PARTIAL for this session."""
+        if self.should_suppress(result):
+            return []
+        previous_id = self._partial_ids.get(session_id)
+        seg_id = str(uuid.uuid4())
+        self._partial_ids[session_id] = seg_id
+        return [
+            self._make_segment(
+                session_id=session_id,
+                status=SegmentStatus.PARTIAL,
+                text=result.text,
+                source=ModalityType.LIP_READING,
+                confidence=result.confidence,
+                timestamp_ms=result.timestamp_ms,
+                duration_ms=result.duration_ms,
+                replaces_segment_id=previous_id,
+                segment_id=seg_id,
+            )
+        ]
+
     def emit_asr_final(
         self,
         result: ModalityResult,
