@@ -7,17 +7,15 @@ when the window threshold is reached (R7: buffering and inference triggering
 stay inside sozia.server.fusion, not the gateway).
 
 Feature vector layout per frame (concatenated; zero-filled if absent):
-    pose:       33 × 3 =  99 dims
+    pose:       33 × 4 = 132 dims  (x, y, z, visibility)
     face:       83 × 3 = 249 dims
     left_hand:  21 × 3 =  63 dims
     right_hand: 21 × 3 =  63 dims
     ────────────────────────────
-    total:               474 dims
+    total:               507 dims
 
-Note: the sozia-research training pipeline uses 507 dims because pose carries
-a 4th visibility float. The wire format (LandmarkFrame) only stores [x, y, z],
-so the server-side feature vector is 474 dims. Trained models must be
-configured with feature_dim=474. (Deviation DEV-05 in lld-deviations.md.)
+Pose landmarks carry a 4th visibility component matching the sozia-research
+training pipeline and the client extraction output.
 """
 
 from __future__ import annotations
@@ -33,7 +31,7 @@ from sozia.common.models import (
 
 # Flat feature vector length per frame — derived from LandmarkFrame structure.
 FEATURE_DIM: int = (
-    POSE_LANDMARK_COUNT * 3
+    POSE_LANDMARK_COUNT * 4  # x, y, z, visibility
     + FACE_LANDMARK_COUNT * 3
     + HAND_LANDMARK_COUNT * 3  # left hand
     + HAND_LANDMARK_COUNT * 3  # right hand
@@ -41,18 +39,29 @@ FEATURE_DIM: int = (
 
 
 def _flatten_or_zeros(
-    arr: list[list[float]] | None, count: int
+    arr: list[list[float]] | None, count: int, components: int = 3
 ) -> np.ndarray:
     """Return flattened landmark array or a zero vector if absent."""
     if arr is None:
-        return np.zeros(count * 3, dtype=np.float32)
+        return np.zeros(count * components, dtype=np.float32)
     return np.asarray(arr, dtype=np.float32).ravel()
+
+
+def _flatten_pose(arr: list[list[float]] | None) -> np.ndarray:
+    """Return 33×4 pose vector. Pads visibility=1.0 if client sends only x,y,z."""
+    if arr is None:
+        return np.zeros(POSE_LANDMARK_COUNT * 4, dtype=np.float32)
+    rows = []
+    for lm in arr:
+        rows.extend(lm[:3])
+        rows.append(lm[3] if len(lm) >= 4 else 1.0)
+    return np.array(rows, dtype=np.float32)
 
 
 def _frame_to_row(frame: LandmarkFrame) -> np.ndarray:
     """Convert a single LandmarkFrame to a 1-D feature vector of length FEATURE_DIM."""
     return np.concatenate([
-        _flatten_or_zeros(frame.pose_landmarks, POSE_LANDMARK_COUNT),
+        _flatten_pose(frame.pose_landmarks),
         _flatten_or_zeros(frame.face_landmarks, FACE_LANDMARK_COUNT),
         _flatten_or_zeros(frame.left_hand_landmarks, HAND_LANDMARK_COUNT),
         _flatten_or_zeros(frame.right_hand_landmarks, HAND_LANDMARK_COUNT),
