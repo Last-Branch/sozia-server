@@ -120,7 +120,7 @@ def _sign_configs(device: str) -> tuple[ModelConfig | None, ModelConfig | None]:
             model_id="gemma-9b-gloss-tr",
             weights_path=gloss_path,
             device=device,
-            params={},
+            params={"merged": True},
         )
         if gloss_path
         else None
