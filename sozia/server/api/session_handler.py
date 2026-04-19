@@ -100,13 +100,13 @@ class SessionHandler:
         silence is detected even if the client pauses audio delivery.
         """
         while True:
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.5)
             if self.modality_path != ModalityPath.SPEECH:
                 continue
             try:
                 await self._orchestrator.flush_stale_speech(
                     self.session_id,
-                    1.0,
+                    0.5,
                     list(self.latest_health.values()),
                     self.send_segment,
                 )
