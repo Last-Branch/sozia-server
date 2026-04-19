@@ -341,12 +341,11 @@ class FusionOrchestrator:
                     "ASR result suppressed (confidence=%.4f < 0.30)", asr_result.confidence
                 )
                 return
-            if features is not None:
-                asr_result = dataclasses.replace(
-                    asr_result,
-                    timestamp_ms=features.timestamp_ms,
-                    duration_ms=features.chunk_duration_ms,
-                )
+            asr_result = dataclasses.replace(
+                asr_result,
+                timestamp_ms=features.timestamp_ms if features is not None else int(time.time() * 1000),
+                duration_ms=features.chunk_duration_ms if features is not None else 0,
+            )
             policy = self._policies.get(ModalityPath.SPEECH)
             if isinstance(policy, SpeechFusionPolicy):
                 asr_segments = policy.emit_asr_final(asr_result, session_id)
