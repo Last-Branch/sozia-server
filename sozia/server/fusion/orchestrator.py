@@ -300,10 +300,10 @@ class FusionOrchestrator:
                     timestamp_ms=features.timestamp_ms,
                     duration_ms=features.chunk_duration_ms,
                 )
-                # Cache for fusion with the next ASR flush regardless of threshold.
-                self._last_lip_result[session_id] = lip_result
                 policy = self._policies.get(ModalityPath.SPEECH)
                 if isinstance(policy, SpeechFusionPolicy):
+                    if not policy.should_suppress(lip_result):
+                        self._last_lip_result[session_id] = lip_result
                     lip_segments = policy.emit_lip_partial(lip_result, session_id)
                     logger.info(
                         "LIP result: text=%r confidence=%.4f → %s",
