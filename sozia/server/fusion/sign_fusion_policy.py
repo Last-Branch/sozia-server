@@ -60,22 +60,32 @@ class SignFusionPolicy(FusionStrategy):
             return []
 
         tsl = next(
-            (r for r in results
-             if r.modality_type == ModalityType.TSL_RECOGNITION
-             and not self.should_suppress(r)),
+            (
+                r
+                for r in results
+                if r.modality_type == ModalityType.TSL_RECOGNITION
+                and not self.should_suppress(r)
+            ),
             None,
         )
         gloss = next(
-            (r for r in results
-             if r.modality_type == ModalityType.GLOSS_TO_TEXT
-             and not self.should_suppress_llm(r)),
+            (
+                r
+                for r in results
+                if r.modality_type == ModalityType.GLOSS_TO_TEXT
+                and not self.should_suppress_llm(r)
+            ),
             None,
         )
 
         session_id = health[0].session_id if health else ""
 
         if gloss:
-            return [self.emit_final_from_llm(session_id, gloss.text, gloss, replaces_id=None)]
+            return [
+                self.emit_final_from_llm(
+                    session_id, gloss.text, gloss, replaces_id=None
+                )
+            ]
         if tsl:
             return [self.emit_partial(session_id, tsl.text, tsl, replaces_id=None)]
         return []

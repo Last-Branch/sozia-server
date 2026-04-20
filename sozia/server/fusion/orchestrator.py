@@ -15,8 +15,6 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
-import time
-import uuid
 from typing import TYPE_CHECKING, Awaitable, Callable
 
 logger = logging.getLogger(__name__)
@@ -32,12 +30,14 @@ from sozia.common.models import (
     ModalityType,
     ModelConfig,
     PipelineHealth,
-    SegmentStatus,
     TranscriptSegment,
 )
+from sozia.server.fusion.activity_detector import ADEvent, ActivityDetector
 from sozia.server.fusion.degraded_mode_handler import DegradedModeHandler
 from sozia.server.fusion.frame_accumulator import FrameAccumulator
+from sozia.server.fusion.gloss_accumulator import GlossAccumulator, GlossEntry
 from sozia.server.fusion.mel_accumulator import MelAccumulator
+from sozia.server.fusion.sign_fusion_policy import SignFusionPolicy
 from sozia.server.fusion.speech_fusion_policy import SpeechFusionPolicy
 
 if TYPE_CHECKING:
@@ -82,6 +82,9 @@ class FusionOrchestrator:
         degraded_handler: DegradedModeHandler | None = None,
         window_size: int = 30,
         mel_max_frames: int = 1500,
+        *,
+        activity_detector: ActivityDetector | None = None,
+        gloss_accumulator: GlossAccumulator | None = None,
     ) -> None:
         self._policies: dict[ModalityPath, FusionStrategy] = {}
         # Keyed by (path, modality_type) → (engine, config).
@@ -91,6 +94,8 @@ class FusionOrchestrator:
         self._degraded: DegradedModeHandler = degraded_handler or DegradedModeHandler()
         self._accumulator = FrameAccumulator(window_size=window_size)
         self._mel_accumulator = MelAccumulator(max_frames=mel_max_frames)
+        self._activity_detector: ActivityDetector = activity_detector or ActivityDetector()
+        self._gloss_accumulator: GlossAccumulator = gloss_accumulator or GlossAccumulator()
         # Per-session face landmark cache (SPEECH path — latest frame from client).
         self._face_cache: dict[str, np.ndarray] = {}
         # Face frames accumulated during speech periods for lip-reading batches.
@@ -157,6 +162,8 @@ class FusionOrchestrator:
         self._last_lip_result.pop(session_id, None)
         self._accumulator.reset(session_id)
         self._mel_accumulator.reset(session_id)
+        self._activity_detector.reset(session_id)
+        self._gloss_accumulator.reset(session_id)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -441,134 +448,121 @@ class FusionOrchestrator:
         if not isinstance(features, LandmarkFrame):
             return  # SIGN path only accepts LandmarkFrame.
 
-        batch = self._accumulator.add(features)
-        if batch is None:
-            return  # Window not full yet.
-
-        logger.info(
-            "frame_accumulator: flushed %d frames (hands=%s)",
-            batch.shape[0],
-            features.left_hand_landmarks is not None
-            or features.right_hand_landmarks is not None,
-        )
+        event = self._activity_detector.update(features)
+        logger.info("AD event: session=%s event=%s", session_id, event.value)
 
         path_engines = self._engines.get(ModalityPath.SIGN, {})
         tsl_entry = path_engines.get(ModalityType.TSL_RECOGNITION)
         gloss_entry = path_engines.get(ModalityType.GLOSS_TO_TEXT)
 
-        if tsl_entry is None:
-            return
+        if event in (ADEvent.STARTED, ADEvent.ACTIVE):
+            batch = self._accumulator.add(features)
+            if batch is None:
+                return  # Window not full yet.
 
-        tsl_engine, _ = tsl_entry
+            if tsl_entry is None:
+                return
 
-        # Run TslRecognitionEngine → emit PARTIAL.
-        try:
-            tsl_result = await tsl_engine.predict(batch)
-        except InferenceTimeoutError:
-            logger.warning("TSL inference timed out — window discarded")
-            return  # No PARTIAL to emit without TSL output.
+            sign_policy = self._policies.get(ModalityPath.SIGN)
+            if not isinstance(sign_policy, SignFusionPolicy):
+                return
 
-        sign_policy = self._policies.get(ModalityPath.SIGN)
-        suppressed = sign_policy is not None and sign_policy.should_suppress(tsl_result)
-        logger.info(
-            "TSL result: gloss=%r confidence=%.4f latency=%dms suppressed=%s",
-            tsl_result.text,
-            tsl_result.confidence,
-            tsl_result.inference_latency_ms,
-            suppressed,
-        )
+            tsl_engine, _ = tsl_entry
+            try:
+                tsl_result = await tsl_engine.predict(batch)
+            except InferenceTimeoutError:
+                logger.warning("TSL inference timed out — window discarded")
+                return
 
-        if suppressed:
-            return  # Low-confidence TSL — skip GlossToText and emit nothing.
-
-        tsl_segments = await self.process_features(
-            session_id,
-            [tsl_result],
-            health,
-            ModalityPath.SIGN,
-        )
-        partial_id: str | None = None
-        for seg in tsl_segments:
-            if seg.status == SegmentStatus.PARTIAL:
-                partial_id = seg.segment_id
-            await _maybe_await(send_fn(seg))
-
-        if gloss_entry is None:
-            return
-
-        gloss_engine, _ = gloss_entry
-
-        # Run GlossToTextEngine → emit FINAL.
-        try:
-            gloss_result = await gloss_engine.predict(tsl_result.text)
-        except InferenceTimeoutError:
-            logger.warning("GlossToText timed out — promoting gloss to FINAL")
-            # Promote TSL gloss to FINAL with a confidence penalty.
-            final_segs = self._promote_gloss_to_final(
-                session_id,
-                tsl_result,
-                partial_id,
+            logger.info(
+                "TSL result: gloss=%r confidence=%.4f latency=%dms",
+                tsl_result.text,
+                tsl_result.confidence,
+                tsl_result.inference_latency_ms,
             )
-            for seg in final_segs:
-                await _maybe_await(send_fn(seg))
-            return
 
-        logger.info(
-            "GlossToText result: text=%r confidence=%.4f latency=%dms",
-            gloss_result.text,
-            gloss_result.confidence,
-            gloss_result.inference_latency_ms,
-        )
+            if sign_policy.should_suppress(tsl_result):
+                return
 
-        final_segments = await self.process_features(
-            session_id,
-            [tsl_result, gloss_result],
-            health,
-            ModalityPath.SIGN,
-        )
-        for seg in final_segments:
-            await _maybe_await(send_fn(seg))
-
-    def _promote_gloss_to_final(
-        self,
-        session_id: str,
-        tsl_result: ModalityResult,
-        partial_id: str | None,
-    ) -> list[TranscriptSegment]:
-        """Produce a FINAL segment from a TSL result when GlossToText timed out.
-
-        Uses the raw gloss text as the final display text and applies a
-        confidence penalty to signal reduced quality.
-
-        Args:
-            session_id: Active session identifier.
-            tsl_result: The TSL result whose gloss becomes the FINAL text.
-            partial_id: The segment_id of the PARTIAL already emitted, if any.
-
-        Returns:
-            A list containing one FINAL TranscriptSegment (or empty if the
-            penalised confidence would be suppressed).
-        """
-        penalised = max(
-            0.0, tsl_result.confidence - _GLOSS_TIMEOUT_CONFIDENCE_DEDUCTION
-        )
-        if penalised <= 0.0:
-            return []
-
-        return [
-            TranscriptSegment(
-                segment_id=str(uuid.uuid4()),
-                session_id=session_id,
-                status=SegmentStatus.FINAL,
+            entry = GlossEntry(
                 text=tsl_result.text,
-                source=ModalityType.TSL_RECOGNITION,
-                confidence=round(penalised, 4),
+                confidence=tsl_result.confidence,
                 timestamp_ms=tsl_result.timestamp_ms,
                 duration_ms=tsl_result.duration_ms,
-                created_at_ms=int(time.time() * 1000),
-                replaces_segment_id=partial_id,
             )
-        ]
+            changed = self._gloss_accumulator.push(session_id, entry)
+            if not changed:
+                return  # Deduped — no new information, skip PARTIAL update.
+
+            phrase = self._gloss_accumulator.peek(session_id)
+            prev_id = self._gloss_accumulator.pop_partial_id(session_id)
+            seg = sign_policy.emit_partial(session_id, phrase, tsl_result, replaces_id=prev_id)
+            self._gloss_accumulator.set_partial_id(session_id, seg.segment_id)
+            logger.info("Emitting PARTIAL: text=%r replaces=%s", phrase, prev_id)
+            await _maybe_await(send_fn(seg))
+
+        elif event == ADEvent.ENDED:
+            if self._gloss_accumulator.is_empty(session_id):
+                return
+
+            sign_policy = self._policies.get(ModalityPath.SIGN)
+            if not isinstance(sign_policy, SignFusionPolicy):
+                return
+
+            # Pop partial_id before flush clears it internally.
+            prev_id = self._gloss_accumulator.pop_partial_id(session_id)
+            entries = self._gloss_accumulator.flush(session_id)
+            phrase = " ".join(e.text for e in entries)
+            aggregate_conf = min(e.confidence for e in entries)
+            timestamp_ms = entries[0].timestamp_ms
+            duration_ms = sum(e.duration_ms for e in entries)
+
+            logger.info(
+                "AD ENDED: flushing phrase=%r agg_conf=%.4f",
+                phrase,
+                aggregate_conf,
+            )
+
+            seg: TranscriptSegment
+            if gloss_entry is not None:
+                gloss_engine, _ = gloss_entry
+                try:
+                    llm_result = await gloss_engine.predict(phrase)
+                    logger.info(
+                        "GlossToText result: text=%r confidence=%.4f latency=%dms",
+                        llm_result.text,
+                        llm_result.confidence,
+                        llm_result.inference_latency_ms,
+                    )
+                    if sign_policy.should_suppress_llm(llm_result):
+                        seg = sign_policy.emit_final_from_gloss(
+                            session_id, phrase, aggregate_conf,
+                            timestamp_ms, duration_ms, prev_id,
+                        )
+                    else:
+                        seg = sign_policy.emit_final_from_llm(
+                            session_id, phrase, llm_result, prev_id,
+                        )
+                except InferenceTimeoutError:
+                    logger.warning("GlossToText timed out — using raw gloss as FINAL")
+                    penalised = max(
+                        0.0, aggregate_conf - _GLOSS_TIMEOUT_CONFIDENCE_DEDUCTION
+                    )
+                    seg = sign_policy.emit_final_from_gloss(
+                        session_id, phrase, penalised,
+                        timestamp_ms, duration_ms, prev_id,
+                    )
+            else:
+                seg = sign_policy.emit_final_from_gloss(
+                    session_id, phrase, aggregate_conf,
+                    timestamp_ms, duration_ms, prev_id,
+                )
+
+            self._accumulator.reset(session_id)
+            logger.info("Emitting FINAL: text=%r replaces=%s", seg.text, prev_id)
+            await _maybe_await(send_fn(seg))
+
+        # ADEvent.IDLE — no output.
 
     # ------------------------------------------------------------------
     # Internal fusion helper (kept public for existing test compatibility)

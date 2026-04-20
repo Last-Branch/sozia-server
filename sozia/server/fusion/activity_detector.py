@@ -28,10 +28,10 @@ _DEFAULT_DEACTIVATE_FRAMES: int = 5
 
 
 class ADEvent(Enum):
-    IDLE = "IDLE"        # inactive, no state change
+    IDLE = "IDLE"  # inactive, no state change
     STARTED = "STARTED"  # rising edge: inactive → active
-    ACTIVE = "ACTIVE"    # active, no state change
-    ENDED = "ENDED"      # falling edge: active → inactive
+    ACTIVE = "ACTIVE"  # active, no state change
+    ENDED = "ENDED"  # falling edge: active → inactive
 
 
 class ActivityDetector:
@@ -168,10 +168,16 @@ class ActivityDetector:
                 rw = pose[_RIGHT_WRIST_IDX]
                 wrists["right"] = (float(rw[0]), float(rw[1]))
         else:
-            if frame.left_hand_landmarks is not None and len(frame.left_hand_landmarks[0]) >= 2:
+            if (
+                frame.left_hand_landmarks is not None
+                and len(frame.left_hand_landmarks[0]) >= 2
+            ):
                 hw = frame.left_hand_landmarks[0]
                 wrists["left"] = (float(hw[0]), float(hw[1]))
-            if frame.right_hand_landmarks is not None and len(frame.right_hand_landmarks[0]) >= 2:
+            if (
+                frame.right_hand_landmarks is not None
+                and len(frame.right_hand_landmarks[0]) >= 2
+            ):
                 hw = frame.right_hand_landmarks[0]
                 wrists["right"] = (float(hw[0]), float(hw[1]))
 
