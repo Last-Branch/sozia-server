@@ -20,6 +20,7 @@ from typing import AsyncGenerator
 from fastapi import FastAPI, WebSocket
 
 from sozia.server.api.auth_middleware import AuthMiddleware
+from sozia.server.api.auth_router import router as auth_router
 from sozia.server.api.gateway import WebSocketGateway
 from sozia.common.models import ModalityPath, ModalityType, ModelConfig
 from sozia.server.fusion.degraded_mode_handler import DegradedModeHandler
@@ -237,6 +238,8 @@ def create_app(auth: AuthMiddleware | None = None) -> FastAPI:
         logger.info("All models unloaded. Server shutting down.")
 
     application = FastAPI(title="Sozia Server", lifespan=lifespan)
+
+    application.include_router(auth_router)
 
     @application.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
