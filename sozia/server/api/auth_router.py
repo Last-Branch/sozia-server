@@ -27,7 +27,7 @@ router = APIRouter(prefix="/auth")
 
 _USERS_FILE = Path(
     os.environ.get("SOZIA_USERS_FILE")
-    or Path(__file__).resolve().parents[3] / "data" / "sozia_users.json"
+    or Path(__file__).resolve().parents[3] / "sozia-user-data" / "sozia_users.json"
 )
 _USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
 
