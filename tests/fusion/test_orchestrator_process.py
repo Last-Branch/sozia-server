@@ -660,12 +660,16 @@ def _sign_orch(
     mock_ad = _MockAD(ad_events or [ADEvent.ACTIVE])
     orch = FusionOrchestrator(window_size=window_size, activity_detector=mock_ad)
     orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
-    orch.register_engine(ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl"))
+    orch.register_engine(
+        ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl")
+    )
 
     if gloss_result is not None or gloss_timeout:
         g = _StubEngine(gloss_result, raise_timeout=gloss_timeout, model_id="gemma")
         g._loaded = True
-        orch.register_engine(ModalityPath.SIGN, ModalityType.GLOSS_TO_TEXT, g, _cfg("gemma"))
+        orch.register_engine(
+            ModalityPath.SIGN, ModalityType.GLOSS_TO_TEXT, g, _cfg("gemma")
+        )
 
     return orch
 
@@ -677,8 +681,11 @@ class TestProcessSign:
         sent: list[TranscriptSegment] = []
         for i in range(3):
             await orch.process(
-                _SESSION, _landmark_frame(timestamp_ms=i),
-                [_video_health()], ModalityPath.SIGN, sent.append,
+                _SESSION,
+                _landmark_frame(timestamp_ms=i),
+                [_video_health()],
+                ModalityPath.SIGN,
+                sent.append,
             )
         assert sent == []
 
@@ -690,7 +697,11 @@ class TestProcessSign:
         )
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _landmark_frame(), [_video_health()], ModalityPath.SIGN, sent.append,
+            _SESSION,
+            _landmark_frame(),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
         )
         assert len(sent) == 1
         assert sent[0].status == SegmentStatus.PARTIAL
@@ -704,7 +715,11 @@ class TestProcessSign:
         )
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _landmark_frame(), [_video_health()], ModalityPath.SIGN, sent.append,
+            _SESSION,
+            _landmark_frame(),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
         )
         assert len(sent) == 1
         assert sent[0].status == SegmentStatus.PARTIAL
@@ -720,13 +735,27 @@ class TestProcessSign:
         mock_ad = _MockAD([ADEvent.ACTIVE, ADEvent.ACTIVE])
         orch = FusionOrchestrator(window_size=1, activity_detector=mock_ad)
         orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
-        orch.register_engine(ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl_stub, _cfg("tsl"))
+        orch.register_engine(
+            ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl_stub, _cfg("tsl")
+        )
 
         sent: list[TranscriptSegment] = []
-        await orch.process(_SESSION, _landmark_frame(timestamp_ms=0), [_video_health()], ModalityPath.SIGN, sent.append)
+        await orch.process(
+            _SESSION,
+            _landmark_frame(timestamp_ms=0),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
+        )
         # Swap TSL result for second window.
         tsl_stub._result = tsl2
-        await orch.process(_SESSION, _landmark_frame(timestamp_ms=1), [_video_health()], ModalityPath.SIGN, sent.append)
+        await orch.process(
+            _SESSION,
+            _landmark_frame(timestamp_ms=1),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
+        )
 
         assert len(sent) == 2
         assert sent[0].text == "YEMEK"
@@ -742,11 +771,25 @@ class TestProcessSign:
         mock_ad = _MockAD([ADEvent.ACTIVE, ADEvent.ACTIVE])
         orch = FusionOrchestrator(window_size=1, activity_detector=mock_ad)
         orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
-        orch.register_engine(ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl_stub, _cfg("tsl"))
+        orch.register_engine(
+            ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl_stub, _cfg("tsl")
+        )
 
         sent: list[TranscriptSegment] = []
-        await orch.process(_SESSION, _landmark_frame(timestamp_ms=0), [_video_health()], ModalityPath.SIGN, sent.append)
-        await orch.process(_SESSION, _landmark_frame(timestamp_ms=1), [_video_health()], ModalityPath.SIGN, sent.append)
+        await orch.process(
+            _SESSION,
+            _landmark_frame(timestamp_ms=0),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
+        )
+        await orch.process(
+            _SESSION,
+            _landmark_frame(timestamp_ms=1),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
+        )
 
         assert len(sent) == 1  # Second window deduped.
 
@@ -760,9 +803,21 @@ class TestProcessSign:
         )
         sent: list[TranscriptSegment] = []
         # Frame 1: ACTIVE → window fills → TSL → PARTIAL
-        await orch.process(_SESSION, _landmark_frame(timestamp_ms=0), [_video_health()], ModalityPath.SIGN, sent.append)
+        await orch.process(
+            _SESSION,
+            _landmark_frame(timestamp_ms=0),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
+        )
         # Frame 2: ENDED → flush → GlossToText → FINAL
-        await orch.process(_SESSION, _landmark_frame(timestamp_ms=1), [_video_health()], ModalityPath.SIGN, sent.append)
+        await orch.process(
+            _SESSION,
+            _landmark_frame(timestamp_ms=1),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
+        )
 
         assert len(sent) == 2
         partial = next(s for s in sent if s.status == SegmentStatus.PARTIAL)
@@ -780,8 +835,20 @@ class TestProcessSign:
             ad_events=[ADEvent.ACTIVE, ADEvent.ENDED],
         )
         sent: list[TranscriptSegment] = []
-        await orch.process(_SESSION, _landmark_frame(timestamp_ms=0), [_video_health()], ModalityPath.SIGN, sent.append)
-        await orch.process(_SESSION, _landmark_frame(timestamp_ms=1), [_video_health()], ModalityPath.SIGN, sent.append)
+        await orch.process(
+            _SESSION,
+            _landmark_frame(timestamp_ms=0),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
+        )
+        await orch.process(
+            _SESSION,
+            _landmark_frame(timestamp_ms=1),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
+        )
 
         final = next(s for s in sent if s.status == SegmentStatus.FINAL)
         assert final.text == "MERHABA"
@@ -795,8 +862,20 @@ class TestProcessSign:
             ad_events=[ADEvent.ACTIVE, ADEvent.ENDED],
         )
         sent: list[TranscriptSegment] = []
-        await orch.process(_SESSION, _landmark_frame(timestamp_ms=0), [_video_health()], ModalityPath.SIGN, sent.append)
-        await orch.process(_SESSION, _landmark_frame(timestamp_ms=1), [_video_health()], ModalityPath.SIGN, sent.append)
+        await orch.process(
+            _SESSION,
+            _landmark_frame(timestamp_ms=0),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
+        )
+        await orch.process(
+            _SESSION,
+            _landmark_frame(timestamp_ms=1),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
+        )
 
         final = next(s for s in sent if s.status == SegmentStatus.FINAL)
         assert final.text == "MERHABA"
@@ -812,7 +891,11 @@ class TestProcessSign:
         )
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _landmark_frame(), [_video_health()], ModalityPath.SIGN, sent.append,
+            _SESSION,
+            _landmark_frame(),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
         )
         assert sent == []
 
@@ -821,7 +904,11 @@ class TestProcessSign:
         orch = _sign_orch(tsl_timeout=True, ad_events=[ADEvent.ACTIVE])
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _landmark_frame(), [_video_health()], ModalityPath.SIGN, sent.append,
+            _SESSION,
+            _landmark_frame(),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
         )
         assert sent == []
 
@@ -833,7 +920,11 @@ class TestProcessSign:
         )
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION, _landmark_frame(), [_video_health()], ModalityPath.SIGN, sent.append,
+            _SESSION,
+            _landmark_frame(),
+            [_video_health()],
+            ModalityPath.SIGN,
+            sent.append,
         )
         assert sent == []
 
@@ -843,8 +934,11 @@ class TestProcessSign:
         sent: list[TranscriptSegment] = []
         for i in range(2):
             await orch.process(
-                _SESSION, _landmark_frame(timestamp_ms=i),
-                [_video_health()], ModalityPath.SIGN, sent.append,
+                _SESSION,
+                _landmark_frame(timestamp_ms=i),
+                [_video_health()],
+                ModalityPath.SIGN,
+                sent.append,
             )
         assert sent == []
 
@@ -901,13 +995,18 @@ class TestResetSession:
 
         orch = FusionOrchestrator(window_size=3, activity_detector=mock_ad)
         orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
-        orch.register_engine(ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl"))
+        orch.register_engine(
+            ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl")
+        )
 
         # Push 2 of 3 frames (window not yet full).
         for i in range(2):
             await orch.process(
-                _SESSION, _landmark_frame(timestamp_ms=i),
-                [_video_health()], ModalityPath.SIGN, lambda _: None,
+                _SESSION,
+                _landmark_frame(timestamp_ms=i),
+                [_video_health()],
+                ModalityPath.SIGN,
+                lambda _: None,
             )
         orch.reset_session(_SESSION)
 
@@ -915,8 +1014,11 @@ class TestResetSession:
         sent: list[TranscriptSegment] = []
         for i in range(2):
             await orch.process(
-                _SESSION, _landmark_frame(timestamp_ms=i + 10),
-                [_video_health()], ModalityPath.SIGN, sent.append,
+                _SESSION,
+                _landmark_frame(timestamp_ms=i + 10),
+                [_video_health()],
+                ModalityPath.SIGN,
+                sent.append,
             )
         assert sent == []
 

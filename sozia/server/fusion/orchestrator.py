@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
+import time
 from typing import TYPE_CHECKING, Awaitable, Callable
 
 logger = logging.getLogger(__name__)
@@ -94,8 +95,12 @@ class FusionOrchestrator:
         self._degraded: DegradedModeHandler = degraded_handler or DegradedModeHandler()
         self._accumulator = FrameAccumulator(window_size=window_size)
         self._mel_accumulator = MelAccumulator(max_frames=mel_max_frames)
-        self._activity_detector: ActivityDetector = activity_detector or ActivityDetector()
-        self._gloss_accumulator: GlossAccumulator = gloss_accumulator or GlossAccumulator()
+        self._activity_detector: ActivityDetector = (
+            activity_detector or ActivityDetector()
+        )
+        self._gloss_accumulator: GlossAccumulator = (
+            gloss_accumulator or GlossAccumulator()
+        )
         # Per-session face landmark cache (SPEECH path — latest frame from client).
         self._face_cache: dict[str, np.ndarray] = {}
         # Face frames accumulated during speech periods for lip-reading batches.
@@ -496,7 +501,9 @@ class FusionOrchestrator:
 
             phrase = self._gloss_accumulator.peek(session_id)
             prev_id = self._gloss_accumulator.pop_partial_id(session_id)
-            seg = sign_policy.emit_partial(session_id, phrase, tsl_result, replaces_id=prev_id)
+            seg = sign_policy.emit_partial(
+                session_id, phrase, tsl_result, replaces_id=prev_id
+            )
             self._gloss_accumulator.set_partial_id(session_id, seg.segment_id)
             logger.info("Emitting PARTIAL: text=%r replaces=%s", phrase, prev_id)
             await _maybe_await(send_fn(seg))
@@ -536,12 +543,19 @@ class FusionOrchestrator:
                     )
                     if sign_policy.should_suppress_llm(llm_result):
                         seg = sign_policy.emit_final_from_gloss(
-                            session_id, phrase, aggregate_conf,
-                            timestamp_ms, duration_ms, prev_id,
+                            session_id,
+                            phrase,
+                            aggregate_conf,
+                            timestamp_ms,
+                            duration_ms,
+                            prev_id,
                         )
                     else:
                         seg = sign_policy.emit_final_from_llm(
-                            session_id, phrase, llm_result, prev_id,
+                            session_id,
+                            phrase,
+                            llm_result,
+                            prev_id,
                         )
                 except InferenceTimeoutError:
                     logger.warning("GlossToText timed out — using raw gloss as FINAL")
@@ -549,13 +563,21 @@ class FusionOrchestrator:
                         0.0, aggregate_conf - _GLOSS_TIMEOUT_CONFIDENCE_DEDUCTION
                     )
                     seg = sign_policy.emit_final_from_gloss(
-                        session_id, phrase, penalised,
-                        timestamp_ms, duration_ms, prev_id,
+                        session_id,
+                        phrase,
+                        penalised,
+                        timestamp_ms,
+                        duration_ms,
+                        prev_id,
                     )
             else:
                 seg = sign_policy.emit_final_from_gloss(
-                    session_id, phrase, aggregate_conf,
-                    timestamp_ms, duration_ms, prev_id,
+                    session_id,
+                    phrase,
+                    aggregate_conf,
+                    timestamp_ms,
+                    duration_ms,
+                    prev_id,
                 )
 
             self._accumulator.reset(session_id)

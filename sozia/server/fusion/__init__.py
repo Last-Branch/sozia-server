@@ -1,7 +1,10 @@
 """sozia.fusion — fusion layer for the Sozia server."""
 
 from sozia.server.fusion.activity_detector import ADEvent, ActivityDetector
-from sozia.server.fusion.degraded_mode_handler import DegradedModeHandler, DegradedStatus
+from sozia.server.fusion.degraded_mode_handler import (
+    DegradedModeHandler,
+    DegradedStatus,
+)
 from sozia.server.fusion.frame_accumulator import FEATURE_DIM, FrameAccumulator
 from sozia.server.fusion.gloss_accumulator import GlossAccumulator, GlossEntry
 from sozia.server.fusion.orchestrator import FusionOrchestrator
