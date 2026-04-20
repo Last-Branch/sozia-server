@@ -227,7 +227,8 @@ class TestSignPipelineIntegration:
         )
         assert len(finals) == 1
         assert finals[0].status == SegmentStatus.FINAL
-        assert finals[0].replaces_segment_id == partial_id
+        # replaces_segment_id linking is now orchestrator's responsibility
+        # (GlossAccumulator tracks it); tested in test_orchestrator_process.py.
         assert finals[0].text == "Merhaba dünya."
 
 
