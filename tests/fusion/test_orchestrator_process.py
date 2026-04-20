@@ -552,6 +552,64 @@ class TestProcessSpeech:
         assert sent[0].status == SegmentStatus.PARTIAL
         assert sent[0].timestamp_ms > 0
 
+    async def test_landmark_frames_during_silence_do_not_trigger_lip(self):
+        # Silence audio chunk → is_speaking=False. Landmark frames must not accumulate.
+        lip = _StubEngine(_result(ModalityType.LIP_READING, "hello", 0.80), model_id="l")
+        lip._loaded = True
+
+        orch = FusionOrchestrator()
+        orch.register_policy(ModalityPath.SPEECH, SpeechFusionPolicy())
+        orch.register_engine(ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l"))
+
+        silence_chunk = AudioFeatureChunk(
+            session_id=_SESSION,
+            timestamp_ms=0,
+            features=[[-1.0, -1.0]] * 100,
+            feature_type="mfcc",
+            sample_rate_hz=16000,
+            chunk_duration_ms=500,
+        )
+
+        sent: list[TranscriptSegment] = []
+        await orch.process(_SESSION, silence_chunk, [_audio_health()], ModalityPath.SPEECH, sent.append)
+        for _ in range(30):
+            await orch.process(_SESSION, _landmark_frame(), [_video_health()], ModalityPath.SPEECH, sent.append)
+
+        assert sent == []
+
+    async def test_silence_after_speech_clears_face_buffer(self):
+        # Partial face buffer accumulated during speech is discarded on silence.
+        lip = _StubEngine(_result(ModalityType.LIP_READING, "hello", 0.80), model_id="l")
+        lip._loaded = True
+
+        orch = FusionOrchestrator()
+        orch.register_policy(ModalityPath.SPEECH, SpeechFusionPolicy())
+        orch.register_engine(ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l"))
+
+        silence_chunk = AudioFeatureChunk(
+            session_id=_SESSION,
+            timestamp_ms=0,
+            features=[[-1.0, -1.0]] * 100,
+            feature_type="mfcc",
+            sample_rate_hz=16000,
+            chunk_duration_ms=500,
+        )
+
+        sent: list[TranscriptSegment] = []
+        # Accumulate 20 face frames during speech.
+        await orch.process(_SESSION, _audio_chunk(), [_audio_health()], ModalityPath.SPEECH, sent.append)
+        for _ in range(20):
+            await orch.process(_SESSION, _landmark_frame(), [_video_health()], ModalityPath.SPEECH, sent.append)
+
+        # Silence clears the buffer.
+        await orch.process(_SESSION, silence_chunk, [_audio_health()], ModalityPath.SPEECH, sent.append)
+
+        # 30 more landmark frames during silence — must not trigger lip.
+        for _ in range(30):
+            await orch.process(_SESSION, _landmark_frame(), [_video_health()], ModalityPath.SPEECH, sent.append)
+
+        assert sent == []
+
 
 # ---------------------------------------------------------------------------
 # process() — Path B (SIGN)
