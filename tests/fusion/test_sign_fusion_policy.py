@@ -131,7 +131,9 @@ class TestEmitPartial:
     def test_text_is_gloss_phrase_not_raw_result(self):
         # Phrase passed in may be multi-word accumulated phrase.
         policy = SignFusionPolicy()
-        seg = policy.emit_partial(_SESSION, "YEMEK OKUL", _tsl(text="OKUL"), replaces_id=None)
+        seg = policy.emit_partial(
+            _SESSION, "YEMEK OKUL", _tsl(text="OKUL"), replaces_id=None
+        )
         assert seg.text == "YEMEK OKUL"
 
     def test_source_is_tsl_recognition(self):
@@ -141,7 +143,9 @@ class TestEmitPartial:
 
     def test_confidence_from_tsl_result(self):
         policy = SignFusionPolicy()
-        seg = policy.emit_partial(_SESSION, "X", _tsl(confidence=0.72), replaces_id=None)
+        seg = policy.emit_partial(
+            _SESSION, "X", _tsl(confidence=0.72), replaces_id=None
+        )
         assert seg.confidence == 0.72
 
     def test_session_id_set(self):
@@ -179,12 +183,16 @@ class TestEmitPartial:
 class TestEmitFinalFromLlm:
     def test_returns_final_segment(self):
         policy = SignFusionPolicy()
-        seg = policy.emit_final_from_llm(_SESSION, "MERHABA", _gloss(), replaces_id=None)
+        seg = policy.emit_final_from_llm(
+            _SESSION, "MERHABA", _gloss(), replaces_id=None
+        )
         assert seg.status == SegmentStatus.FINAL
 
     def test_text_is_llm_output(self):
         policy = SignFusionPolicy()
-        seg = policy.emit_final_from_llm(_SESSION, "MERHABA", _gloss(text="Merhaba dünya."), replaces_id=None)
+        seg = policy.emit_final_from_llm(
+            _SESSION, "MERHABA", _gloss(text="Merhaba dünya."), replaces_id=None
+        )
         assert seg.text == "Merhaba dünya."
 
     def test_source_is_gloss_to_text(self):
@@ -194,12 +202,16 @@ class TestEmitFinalFromLlm:
 
     def test_confidence_from_llm_result(self):
         policy = SignFusionPolicy()
-        seg = policy.emit_final_from_llm(_SESSION, "X", _gloss(confidence=0.73), replaces_id=None)
+        seg = policy.emit_final_from_llm(
+            _SESSION, "X", _gloss(confidence=0.73), replaces_id=None
+        )
         assert seg.confidence == 0.73
 
     def test_replaces_id_forwarded(self):
         policy = SignFusionPolicy()
-        seg = policy.emit_final_from_llm(_SESSION, "X", _gloss(), replaces_id=_PREV_PARTIAL_ID)
+        seg = policy.emit_final_from_llm(
+            _SESSION, "X", _gloss(), replaces_id=_PREV_PARTIAL_ID
+        )
         assert seg.replaces_segment_id == _PREV_PARTIAL_ID
 
     def test_replaces_id_none_when_omitted(self):
@@ -217,16 +229,24 @@ class TestEmitFinalFromGloss:
     def test_returns_final_segment(self):
         policy = SignFusionPolicy()
         seg = policy.emit_final_from_gloss(
-            _SESSION, "YEMEK OKUL", aggregate_conf=0.60,
-            timestamp_ms=1000, duration_ms=2000, replaces_id=None,
+            _SESSION,
+            "YEMEK OKUL",
+            aggregate_conf=0.60,
+            timestamp_ms=1000,
+            duration_ms=2000,
+            replaces_id=None,
         )
         assert seg.status == SegmentStatus.FINAL
 
     def test_text_is_raw_gloss_phrase(self):
         policy = SignFusionPolicy()
         seg = policy.emit_final_from_gloss(
-            _SESSION, "YEMEK OKUL", aggregate_conf=0.60,
-            timestamp_ms=1000, duration_ms=2000, replaces_id=None,
+            _SESSION,
+            "YEMEK OKUL",
+            aggregate_conf=0.60,
+            timestamp_ms=1000,
+            duration_ms=2000,
+            replaces_id=None,
         )
         assert seg.text == "YEMEK OKUL"
 
@@ -234,24 +254,36 @@ class TestEmitFinalFromGloss:
         # Raw-gloss fallback still originates from TSL, not GlossToText.
         policy = SignFusionPolicy()
         seg = policy.emit_final_from_gloss(
-            _SESSION, "X", aggregate_conf=0.60,
-            timestamp_ms=1000, duration_ms=2000, replaces_id=None,
+            _SESSION,
+            "X",
+            aggregate_conf=0.60,
+            timestamp_ms=1000,
+            duration_ms=2000,
+            replaces_id=None,
         )
         assert seg.source == ModalityType.TSL_RECOGNITION
 
     def test_aggregate_confidence_used(self):
         policy = SignFusionPolicy()
         seg = policy.emit_final_from_gloss(
-            _SESSION, "X", aggregate_conf=0.58,
-            timestamp_ms=1000, duration_ms=2000, replaces_id=None,
+            _SESSION,
+            "X",
+            aggregate_conf=0.58,
+            timestamp_ms=1000,
+            duration_ms=2000,
+            replaces_id=None,
         )
         assert seg.confidence == 0.58
 
     def test_timestamp_and_duration_forwarded(self):
         policy = SignFusionPolicy()
         seg = policy.emit_final_from_gloss(
-            _SESSION, "X", aggregate_conf=0.60,
-            timestamp_ms=5000, duration_ms=3000, replaces_id=None,
+            _SESSION,
+            "X",
+            aggregate_conf=0.60,
+            timestamp_ms=5000,
+            duration_ms=3000,
+            replaces_id=None,
         )
         assert seg.timestamp_ms == 5000
         assert seg.duration_ms == 3000
@@ -259,8 +291,12 @@ class TestEmitFinalFromGloss:
     def test_replaces_id_forwarded(self):
         policy = SignFusionPolicy()
         seg = policy.emit_final_from_gloss(
-            _SESSION, "X", aggregate_conf=0.60,
-            timestamp_ms=1000, duration_ms=2000, replaces_id=_PREV_PARTIAL_ID,
+            _SESSION,
+            "X",
+            aggregate_conf=0.60,
+            timestamp_ms=1000,
+            duration_ms=2000,
+            replaces_id=_PREV_PARTIAL_ID,
         )
         assert seg.replaces_segment_id == _PREV_PARTIAL_ID
 
@@ -328,7 +364,8 @@ class TestFuseSuppressedModality:
     def test_low_confidence_gloss_ignored_tsl_emits_partial(self):
         policy = SignFusionPolicy()
         segments = policy.fuse(
-            [_tsl(confidence=0.80), _gloss(confidence=0.10)], _health(),
+            [_tsl(confidence=0.80), _gloss(confidence=0.10)],
+            _health(),
         )
         assert len(segments) == 1
         assert segments[0].status == SegmentStatus.PARTIAL
@@ -337,7 +374,8 @@ class TestFuseSuppressedModality:
     def test_low_confidence_tsl_with_valid_gloss_emits_final(self):
         policy = SignFusionPolicy()
         segments = policy.fuse(
-            [_tsl(confidence=0.10), _gloss(confidence=0.85)], _health(),
+            [_tsl(confidence=0.10), _gloss(confidence=0.85)],
+            _health(),
         )
         assert len(segments) == 1
         assert segments[0].status == SegmentStatus.FINAL

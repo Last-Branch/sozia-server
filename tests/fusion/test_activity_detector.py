@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import math
-
-import pytest
 
 from sozia.common.models import (
     HAND_LANDMARK_COUNT,
@@ -124,7 +121,9 @@ class TestIdleNoHands:
     def test_never_becomes_active_without_hands(self):
         detector = ActivityDetector(activate_frames=2)
         events = [
-            detector.update(_make_frame(timestamp_ms=i, pose=_pose_at(float(i), float(i))))
+            detector.update(
+                _make_frame(timestamp_ms=i, pose=_pose_at(float(i), float(i)))
+            )
             for i in range(20)
         ]
         assert all(e == ADEvent.IDLE for e in events)
@@ -231,17 +230,27 @@ class TestActiveState:
         detector = ActivityDetector(activate_frames=n, deactivate_frames=100)
 
         # Anchor frame.
-        detector.update(_make_frame(timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)))
+        detector.update(
+            _make_frame(
+                timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)
+            )
+        )
 
         # Reach STARTED.
         for i in range(1, n + 1):
             x = i * 0.05
-            detector.update(_make_frame(timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)))
+            detector.update(
+                _make_frame(
+                    timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)
+                )
+            )
 
         # Subsequent active frames.
         for i in range(n + 1, n + 6):
             x = i * 0.05
-            frame = _make_frame(timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x))
+            frame = _make_frame(
+                timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)
+            )
             event = detector.update(frame)
             assert event == ADEvent.ACTIVE, f"expected ACTIVE at frame {i}, got {event}"
 
@@ -251,10 +260,18 @@ class TestActiveState:
         assert not detector.is_active(_SESSION)
 
         # Bring detector to ACTIVE.
-        detector.update(_make_frame(timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)))
+        detector.update(
+            _make_frame(
+                timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)
+            )
+        )
         for i in range(1, n + 1):
             x = i * 0.05
-            detector.update(_make_frame(timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)))
+            detector.update(
+                _make_frame(
+                    timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)
+                )
+            )
 
         assert detector.is_active(_SESSION)
 
@@ -267,18 +284,26 @@ class TestActiveState:
 class TestFallingEdge:
     def _reach_active(self, detector: ActivityDetector, activate_frames: int) -> int:
         """Drive detector to ACTIVE state; return next timestamp to use."""
-        detector.update(_make_frame(timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)))
+        detector.update(
+            _make_frame(
+                timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)
+            )
+        )
         for i in range(1, activate_frames + 1):
             x = i * 0.05
             detector.update(
-                _make_frame(timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x))
+                _make_frame(
+                    timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)
+                )
             )
         return activate_frames + 1
 
     def test_ended_fires_on_nth_inactive_frame(self):
         deactivate_n = 4
         activate_n = 2
-        detector = ActivityDetector(activate_frames=activate_n, deactivate_frames=deactivate_n)
+        detector = ActivityDetector(
+            activate_frames=activate_n, deactivate_frames=deactivate_n
+        )
         next_ts = self._reach_active(detector, activate_n)
 
         # Feed deactivate_n frames with no hands.
@@ -298,7 +323,9 @@ class TestFallingEdge:
         """A single active frame mid-deactivation resets the counter."""
         deactivate_n = 3
         activate_n = 2
-        detector = ActivityDetector(activate_frames=activate_n, deactivate_frames=deactivate_n)
+        detector = ActivityDetector(
+            activate_frames=activate_n, deactivate_frames=deactivate_n
+        )
         next_ts = self._reach_active(detector, activate_n)
 
         def inactive(ts: int) -> LandmarkFrame:
@@ -329,38 +356,64 @@ class TestIdleAfterEnded:
     def test_idle_events_follow_ended(self):
         activate_n = 2
         deactivate_n = 2
-        detector = ActivityDetector(activate_frames=activate_n, deactivate_frames=deactivate_n)
+        detector = ActivityDetector(
+            activate_frames=activate_n, deactivate_frames=deactivate_n
+        )
 
         # Reach ACTIVE.
-        detector.update(_make_frame(timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)))
+        detector.update(
+            _make_frame(
+                timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)
+            )
+        )
         for i in range(1, activate_n + 1):
             x = i * 0.05
-            detector.update(_make_frame(timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)))
+            detector.update(
+                _make_frame(
+                    timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)
+                )
+            )
 
         # Reach ENDED.
         next_ts = activate_n + 1
         for i in range(deactivate_n):
-            detector.update(_make_frame(timestamp_ms=next_ts + i, pose=_pose_at(0.5, 0.5)))
+            detector.update(
+                _make_frame(timestamp_ms=next_ts + i, pose=_pose_at(0.5, 0.5))
+            )
         next_ts += deactivate_n
 
         # Additional inactive frames should all be IDLE.
         for i in range(5):
-            ev = detector.update(_make_frame(timestamp_ms=next_ts + i, pose=_pose_at(0.5, 0.5)))
+            ev = detector.update(
+                _make_frame(timestamp_ms=next_ts + i, pose=_pose_at(0.5, 0.5))
+            )
             assert ev == ADEvent.IDLE, f"expected IDLE after ENDED, got {ev}"
 
     def test_is_active_returns_false_after_ended(self):
         activate_n = 2
         deactivate_n = 2
-        detector = ActivityDetector(activate_frames=activate_n, deactivate_frames=deactivate_n)
+        detector = ActivityDetector(
+            activate_frames=activate_n, deactivate_frames=deactivate_n
+        )
 
-        detector.update(_make_frame(timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)))
+        detector.update(
+            _make_frame(
+                timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)
+            )
+        )
         for i in range(1, activate_n + 1):
             x = i * 0.05
-            detector.update(_make_frame(timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)))
+            detector.update(
+                _make_frame(
+                    timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)
+                )
+            )
 
         next_ts = activate_n + 1
         for i in range(deactivate_n):
-            detector.update(_make_frame(timestamp_ms=next_ts + i, pose=_pose_at(0.5, 0.5)))
+            detector.update(
+                _make_frame(timestamp_ms=next_ts + i, pose=_pose_at(0.5, 0.5))
+            )
 
         assert not detector.is_active(_SESSION)
 
@@ -374,13 +427,23 @@ class TestHysteresis:
     def test_single_inactive_frame_does_not_end_activity(self):
         activate_n = 2
         deactivate_n = 4  # grace period is 4 frames
-        detector = ActivityDetector(activate_frames=activate_n, deactivate_frames=deactivate_n)
+        detector = ActivityDetector(
+            activate_frames=activate_n, deactivate_frames=deactivate_n
+        )
 
         # Reach ACTIVE state.
-        detector.update(_make_frame(timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)))
+        detector.update(
+            _make_frame(
+                timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)
+            )
+        )
         for i in range(1, activate_n + 1):
             x = i * 0.05
-            detector.update(_make_frame(timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)))
+            detector.update(
+                _make_frame(
+                    timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)
+                )
+            )
 
         next_ts = activate_n + 1
 
@@ -392,28 +455,42 @@ class TestHysteresis:
         # Resume activity — still ACTIVE (or STARTED again if implementation re-arms, but not IDLE/ENDED).
         next_ts += 1
         resume_x = 0.9
-        ev = detector.update(_make_frame(
-            timestamp_ms=next_ts,
-            pose=_pose_at(resume_x, resume_x),
-            left_hand=_hand_at(resume_x, resume_x),
-        ))
+        ev = detector.update(
+            _make_frame(
+                timestamp_ms=next_ts,
+                pose=_pose_at(resume_x, resume_x),
+                left_hand=_hand_at(resume_x, resume_x),
+            )
+        )
         assert ev in (ADEvent.ACTIVE, ADEvent.STARTED)
 
     def test_deactivate_frames_minus_one_inactive_does_not_end(self):
         activate_n = 2
         deactivate_n = 5
-        detector = ActivityDetector(activate_frames=activate_n, deactivate_frames=deactivate_n)
+        detector = ActivityDetector(
+            activate_frames=activate_n, deactivate_frames=deactivate_n
+        )
 
-        detector.update(_make_frame(timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)))
+        detector.update(
+            _make_frame(
+                timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)
+            )
+        )
         for i in range(1, activate_n + 1):
             x = i * 0.05
-            detector.update(_make_frame(timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)))
+            detector.update(
+                _make_frame(
+                    timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)
+                )
+            )
 
         next_ts = activate_n + 1
         events = []
         # Feed deactivate_n - 1 inactive frames → must NOT include ENDED.
         for i in range(deactivate_n - 1):
-            ev = detector.update(_make_frame(timestamp_ms=next_ts + i, pose=_pose_at(0.5, 0.5)))
+            ev = detector.update(
+                _make_frame(timestamp_ms=next_ts + i, pose=_pose_at(0.5, 0.5))
+            )
             events.append(ev)
 
         assert ADEvent.ENDED not in events
@@ -462,7 +539,9 @@ class TestPoseWristFallback:
             velocity_threshold=0.005, activate_frames=activate_n, deactivate_frames=10
         )
 
-        detector.update(_make_frame(timestamp_ms=0, pose=None, right_hand=_hand_at(0.1, 0.1)))
+        detector.update(
+            _make_frame(timestamp_ms=0, pose=None, right_hand=_hand_at(0.1, 0.1))
+        )
 
         events = []
         for i in range(1, activate_n + 1):
@@ -483,10 +562,24 @@ class TestMultiSessionIsolation:
         detector = ActivityDetector(activate_frames=2, deactivate_frames=10)
 
         # Drive session A to ACTIVE.
-        detector.update(_make_frame(session_id=_SESSION, timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)))
+        detector.update(
+            _make_frame(
+                session_id=_SESSION,
+                timestamp_ms=0,
+                pose=_pose_at(0.0, 0.0),
+                left_hand=_hand_at(0.0, 0.0),
+            )
+        )
         for i in range(1, 3):
             x = i * 0.05
-            detector.update(_make_frame(session_id=_SESSION, timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)))
+            detector.update(
+                _make_frame(
+                    session_id=_SESSION,
+                    timestamp_ms=i,
+                    pose=_pose_at(x, x),
+                    left_hand=_hand_at(x, x),
+                )
+            )
 
         assert detector.is_active(_SESSION)
         # Session B has received no frames — must not be active.
@@ -496,10 +589,24 @@ class TestMultiSessionIsolation:
         detector = ActivityDetector(activate_frames=2, deactivate_frames=10)
 
         # Activate B.
-        detector.update(_make_frame(session_id=_SESSION_B, timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)))
+        detector.update(
+            _make_frame(
+                session_id=_SESSION_B,
+                timestamp_ms=0,
+                pose=_pose_at(0.0, 0.0),
+                left_hand=_hand_at(0.0, 0.0),
+            )
+        )
         for i in range(1, 3):
             x = i * 0.05
-            detector.update(_make_frame(session_id=_SESSION_B, timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)))
+            detector.update(
+                _make_frame(
+                    session_id=_SESSION_B,
+                    timestamp_ms=i,
+                    pose=_pose_at(x, x),
+                    left_hand=_hand_at(x, x),
+                )
+            )
 
         # A has never seen a frame.
         assert not detector.is_active(_SESSION)
@@ -509,10 +616,24 @@ class TestMultiSessionIsolation:
         detector = ActivityDetector(activate_frames=activate_n, deactivate_frames=10)
 
         for sid in (_SESSION, _SESSION_B):
-            detector.update(_make_frame(session_id=sid, timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)))
+            detector.update(
+                _make_frame(
+                    session_id=sid,
+                    timestamp_ms=0,
+                    pose=_pose_at(0.0, 0.0),
+                    left_hand=_hand_at(0.0, 0.0),
+                )
+            )
             for i in range(1, activate_n + 1):
                 x = i * 0.05
-                detector.update(_make_frame(session_id=sid, timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)))
+                detector.update(
+                    _make_frame(
+                        session_id=sid,
+                        timestamp_ms=i,
+                        pose=_pose_at(x, x),
+                        left_hand=_hand_at(x, x),
+                    )
+                )
 
         assert detector.is_active(_SESSION)
         assert detector.is_active(_SESSION_B)
@@ -533,10 +654,18 @@ class TestReset:
         detector = ActivityDetector(activate_frames=activate_n, deactivate_frames=10)
 
         # Reach ACTIVE.
-        detector.update(_make_frame(timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)))
+        detector.update(
+            _make_frame(
+                timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)
+            )
+        )
         for i in range(1, activate_n + 1):
             x = i * 0.05
-            detector.update(_make_frame(timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)))
+            detector.update(
+                _make_frame(
+                    timestamp_ms=i, pose=_pose_at(x, x), left_hand=_hand_at(x, x)
+                )
+            )
 
         assert detector.is_active(_SESSION)
 
@@ -548,14 +677,26 @@ class TestReset:
         activate_n = 1
         detector = ActivityDetector(activate_frames=activate_n, deactivate_frames=10)
 
-        detector.update(_make_frame(timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)))
-        detector.update(_make_frame(timestamp_ms=1, pose=_pose_at(0.5, 0.5), left_hand=_hand_at(0.5, 0.5)))
+        detector.update(
+            _make_frame(
+                timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)
+            )
+        )
+        detector.update(
+            _make_frame(
+                timestamp_ms=1, pose=_pose_at(0.5, 0.5), left_hand=_hand_at(0.5, 0.5)
+            )
+        )
         # Now ACTIVE (activate_frames=1).
 
         detector.reset(_SESSION)
 
         # First frame after reset: no prior position → velocity = 0.
-        ev = detector.update(_make_frame(timestamp_ms=2, pose=_pose_at(0.9, 0.9), left_hand=_hand_at(0.9, 0.9)))
+        ev = detector.update(
+            _make_frame(
+                timestamp_ms=2, pose=_pose_at(0.9, 0.9), left_hand=_hand_at(0.9, 0.9)
+            )
+        )
         assert ev == ADEvent.IDLE
 
     def test_reset_unknown_session_is_noop(self):
@@ -568,12 +709,24 @@ class TestReset:
         detector = ActivityDetector(activate_frames=activate_n, deactivate_frames=10)
 
         # Feed 2 active frames (one short of STARTED).
-        detector.update(_make_frame(timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)))
-        detector.update(_make_frame(timestamp_ms=1, pose=_pose_at(0.1, 0.1), left_hand=_hand_at(0.1, 0.1)))
+        detector.update(
+            _make_frame(
+                timestamp_ms=0, pose=_pose_at(0.0, 0.0), left_hand=_hand_at(0.0, 0.0)
+            )
+        )
+        detector.update(
+            _make_frame(
+                timestamp_ms=1, pose=_pose_at(0.1, 0.1), left_hand=_hand_at(0.1, 0.1)
+            )
+        )
 
         detector.reset(_SESSION)
 
         # After reset, the accumulated count must be gone — one more active frame
         # alone must NOT trigger STARTED (needs activate_n fresh frames).
-        ev = detector.update(_make_frame(timestamp_ms=2, pose=_pose_at(0.2, 0.2), left_hand=_hand_at(0.2, 0.2)))
+        ev = detector.update(
+            _make_frame(
+                timestamp_ms=2, pose=_pose_at(0.2, 0.2), left_hand=_hand_at(0.2, 0.2)
+            )
+        )
         assert ev == ADEvent.IDLE

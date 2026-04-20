@@ -53,10 +53,13 @@ class _StubEngine(InferenceEngine):
         self._model_id = config.model_id
 
     async def predict(
-        self, features, timeout_ms: int = 2200,
+        self,
+        features,
+        timeout_ms: int = 2200,
     ) -> ModalityResult:
         if not self._loaded:
             from sozia.common.interfaces import ModelNotLoadedError
+
             raise ModelNotLoadedError(self._model_id)
         return self._result
 
@@ -101,7 +104,8 @@ def _audio_health(available: bool = True, snr: float = 25.0) -> PipelineHealth:
 
 
 def _video_health(
-    available: bool = True, face_detected: bool = True,
+    available: bool = True,
+    face_detected: bool = True,
 ) -> PipelineHealth:
     return PipelineHealth(
         session_id=_SESSION,
@@ -152,7 +156,10 @@ class TestSpeechPipelineIntegration:
 
         # First pass: ASR only → PARTIAL.
         partials = await orch.process_features(
-            _SESSION, [asr_out], [_audio_health()], ModalityPath.SPEECH,
+            _SESSION,
+            [asr_out],
+            [_audio_health()],
+            ModalityPath.SPEECH,
         )
         assert len(partials) == 1
         assert partials[0].status == SegmentStatus.PARTIAL
@@ -178,7 +185,10 @@ class TestSpeechPipelineIntegration:
 
         orch = _build_orchestrator()
         segments = await orch.process_features(
-            _SESSION, [asr_out], [_audio_health()], ModalityPath.SPEECH,
+            _SESSION,
+            [asr_out],
+            [_audio_health()],
+            ModalityPath.SPEECH,
         )
         assert segments == []
 
@@ -211,7 +221,10 @@ class TestSignPipelineIntegration:
 
         # TSL alone → PARTIAL.
         partials = await orch.process_features(
-            _SESSION, [tsl_out], [_video_health()], ModalityPath.SIGN,
+            _SESSION,
+            [tsl_out],
+            [_video_health()],
+            ModalityPath.SIGN,
         )
         assert len(partials) == 1
         assert partials[0].status == SegmentStatus.PARTIAL
@@ -309,7 +322,10 @@ class TestEngineLifecycleContract:
         out = await engine.predict(features=None)
 
         segments = await orch.process_features(
-            _SESSION, [out], [_audio_health()], ModalityPath.SPEECH,
+            _SESSION,
+            [out],
+            [_audio_health()],
+            ModalityPath.SPEECH,
         )
         # 0.85 < 0.90 → suppressed.
         assert segments == []
@@ -329,10 +345,16 @@ class TestWarmUpCoolDown:
 
         orch = _build_orchestrator()
         orch.register_engine(
-            ModalityPath.SPEECH, ModalityType.ASR, asr, _config("whisper-small-tr"),
+            ModalityPath.SPEECH,
+            ModalityType.ASR,
+            asr,
+            _config("whisper-small-tr"),
         )
         orch.register_engine(
-            ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _config("lip-reading-v1"),
+            ModalityPath.SPEECH,
+            ModalityType.LIP_READING,
+            lip,
+            _config("lip-reading-v1"),
         )
 
         await orch.warm_up(ModalityPath.SPEECH)
@@ -343,7 +365,10 @@ class TestWarmUpCoolDown:
         engine = _StubEngine(_result(ModalityType.ASR, "x"))
         orch = _build_orchestrator()
         orch.register_engine(
-            ModalityPath.SPEECH, ModalityType.ASR, engine, _config("whisper-small-tr"),
+            ModalityPath.SPEECH,
+            ModalityType.ASR,
+            engine,
+            _config("whisper-small-tr"),
         )
 
         await orch.warm_up(ModalityPath.SPEECH)
@@ -355,8 +380,12 @@ class TestWarmUpCoolDown:
         tsl = _StubEngine(_result(ModalityType.TSL_RECOGNITION, "x"))
 
         orch = _build_orchestrator()
-        orch.register_engine(ModalityPath.SPEECH, ModalityType.ASR, asr, _config("whisper"))
-        orch.register_engine(ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _config("tsl-gru"))
+        orch.register_engine(
+            ModalityPath.SPEECH, ModalityType.ASR, asr, _config("whisper")
+        )
+        orch.register_engine(
+            ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _config("tsl-gru")
+        )
 
         await orch.warm_up(ModalityPath.SPEECH)
         assert asr.is_loaded()
@@ -371,8 +400,12 @@ class TestWarmUpCoolDown:
         tsl = _StubEngine(_result(ModalityType.TSL_RECOGNITION, "x"))
 
         orch = _build_orchestrator()
-        orch.register_engine(ModalityPath.SPEECH, ModalityType.ASR, asr, _config("whisper"))
-        orch.register_engine(ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _config("tsl-gru"))
+        orch.register_engine(
+            ModalityPath.SPEECH, ModalityType.ASR, asr, _config("whisper")
+        )
+        orch.register_engine(
+            ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _config("tsl-gru")
+        )
 
         await orch.warm_up(ModalityPath.SPEECH)
         await orch.warm_up(ModalityPath.SIGN)

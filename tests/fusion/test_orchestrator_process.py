@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 from sozia.common.interfaces import InferenceEngine, InferenceTimeoutError
 from sozia.common.models import (
     FACE_LANDMARK_COUNT,
@@ -18,6 +17,8 @@ from sozia.common.models import (
     SegmentStatus,
     TranscriptSegment,
 )
+from sozia.server.fusion.activity_detector import ADEvent, ActivityDetector
+from sozia.server.fusion.gloss_accumulator import GlossAccumulator
 from sozia.server.fusion.orchestrator import FusionOrchestrator
 from sozia.server.fusion.sign_fusion_policy import SignFusionPolicy
 from sozia.server.fusion.speech_fusion_policy import SpeechFusionPolicy
@@ -137,6 +138,23 @@ class _StubEngine(InferenceEngine):
         return self._model_id if self._loaded else ""
 
 
+class _MockAD:
+    """Stub ActivityDetector that returns a fixed sequence of ADEvents."""
+
+    def __init__(self, events: list[ADEvent], default: ADEvent = ADEvent.IDLE) -> None:
+        self._events = iter(events)
+        self._default = default
+
+    def update(self, frame: LandmarkFrame) -> ADEvent:
+        return next(self._events, self._default)
+
+    def reset(self, session_id: str) -> None:
+        pass
+
+    def is_active(self, session_id: str) -> bool:
+        return False
+
+
 def _make_orchestrator(
     window_size: int = 1,
     mel_max_frames: int = 1500,
@@ -146,8 +164,15 @@ def _make_orchestrator(
     lip_engine: _StubEngine | None = None,
     tsl_engine: _StubEngine | None = None,
     gloss_engine: _StubEngine | None = None,
+    activity_detector: ActivityDetector | None = None,
+    gloss_accumulator: GlossAccumulator | None = None,
 ) -> FusionOrchestrator:
-    orch = FusionOrchestrator(window_size=window_size, mel_max_frames=mel_max_frames)
+    orch = FusionOrchestrator(
+        window_size=window_size,
+        mel_max_frames=mel_max_frames,
+        activity_detector=activity_detector,
+        gloss_accumulator=gloss_accumulator,
+    )
     orch.register_policy(ModalityPath.SPEECH, SpeechFusionPolicy())
     orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
 
@@ -612,170 +637,215 @@ class TestProcessSpeech:
 
 
 # ---------------------------------------------------------------------------
-# process() — Path B (SIGN)
+# process() — Path B (SIGN) — AD-gated multi-word accumulation flow
 # ---------------------------------------------------------------------------
 
 
+def _sign_orch(
+    tsl_result: ModalityResult | None = None,
+    gloss_result: ModalityResult | None = None,
+    tsl_timeout: bool = False,
+    gloss_timeout: bool = False,
+    ad_events: list[ADEvent] | None = None,
+    window_size: int = 1,
+) -> FusionOrchestrator:
+    """Build an orchestrator wired for sign-path tests with a controlled AD."""
+    tsl = _StubEngine(
+        tsl_result or _result(ModalityType.TSL_RECOGNITION, "MERHABA", 0.80),
+        raise_timeout=tsl_timeout,
+        model_id="tsl",
+    )
+    tsl._loaded = True
+
+    mock_ad = _MockAD(ad_events or [ADEvent.ACTIVE])
+    orch = FusionOrchestrator(window_size=window_size, activity_detector=mock_ad)
+    orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
+    orch.register_engine(ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl"))
+
+    if gloss_result is not None or gloss_timeout:
+        g = _StubEngine(gloss_result, raise_timeout=gloss_timeout, model_id="gemma")
+        g._loaded = True
+        orch.register_engine(ModalityPath.SIGN, ModalityType.GLOSS_TO_TEXT, g, _cfg("gemma"))
+
+    return orch
+
+
 class TestProcessSign:
-    async def test_partial_window_emits_nothing(self):
-        orch = _make_orchestrator(window_size=5, with_sign=True)
-        sent: list[TranscriptSegment] = []
-        for i in range(4):
-            await orch.process(
-                _SESSION,
-                _landmark_frame(timestamp_ms=i),
-                [_video_health()],
-                ModalityPath.SIGN,
-                sent.append,
-            )
-        assert sent == []
-
-    async def test_full_window_emits_partial_from_tsl(self):
-        tsl = _StubEngine(
-            _result(ModalityType.TSL_RECOGNITION, "MERHABA", 0.80), model_id="tsl"
-        )
-        tsl._loaded = True
-        gloss = _StubEngine(
-            _result(ModalityType.GLOSS_TO_TEXT, "Merhaba.", 0.88), model_id="gemma"
-        )
-        gloss._loaded = True
-
-        orch = FusionOrchestrator(window_size=3)
-        orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
-        orch.register_engine(
-            ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl")
-        )
-        orch.register_engine(
-            ModalityPath.SIGN, ModalityType.GLOSS_TO_TEXT, gloss, _cfg("gemma")
-        )
-
+    async def test_idle_event_produces_nothing(self):
+        """AD returning IDLE means no frames reach the accumulator."""
+        orch = _sign_orch(ad_events=[ADEvent.IDLE, ADEvent.IDLE, ADEvent.IDLE])
         sent: list[TranscriptSegment] = []
         for i in range(3):
             await orch.process(
-                _SESSION,
-                _landmark_frame(timestamp_ms=i),
-                [_video_health()],
-                ModalityPath.SIGN,
-                sent.append,
+                _SESSION, _landmark_frame(timestamp_ms=i),
+                [_video_health()], ModalityPath.SIGN, sent.append,
             )
+        assert sent == []
 
-        # Should have: PARTIAL (TSL) + FINAL (gloss)
-        assert len(sent) == 2
-        statuses = {s.status for s in sent}
-        assert SegmentStatus.PARTIAL in statuses
-        assert SegmentStatus.FINAL in statuses
-
-    async def test_full_window_partial_text_is_gloss(self):
-        tsl = _StubEngine(
-            _result(ModalityType.TSL_RECOGNITION, "MERHABA DUNYA", 0.80), model_id="tsl"
+    async def test_active_window_emits_partial(self):
+        """ACTIVE event + full window → TSL predict → PARTIAL emitted."""
+        orch = _sign_orch(
+            tsl_result=_result(ModalityType.TSL_RECOGNITION, "MERHABA", 0.80),
+            ad_events=[ADEvent.ACTIVE],
         )
-        tsl._loaded = True
-        gloss = _StubEngine(
-            _result(ModalityType.GLOSS_TO_TEXT, "Merhaba dünya.", 0.88),
-            model_id="gemma",
-        )
-        gloss._loaded = True
-
-        orch = FusionOrchestrator(window_size=1)
-        orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
-        orch.register_engine(
-            ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl")
-        )
-        orch.register_engine(
-            ModalityPath.SIGN, ModalityType.GLOSS_TO_TEXT, gloss, _cfg("gemma")
-        )
-
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION,
-            _landmark_frame(),
-            [_video_health()],
-            ModalityPath.SIGN,
-            sent.append,
+            _SESSION, _landmark_frame(), [_video_health()], ModalityPath.SIGN, sent.append,
         )
+        assert len(sent) == 1
+        assert sent[0].status == SegmentStatus.PARTIAL
+        assert sent[0].text == "MERHABA"
+
+    async def test_started_event_same_as_active(self):
+        """STARTED (rising edge) feeds the window just like ACTIVE."""
+        orch = _sign_orch(
+            tsl_result=_result(ModalityType.TSL_RECOGNITION, "GİT", 0.75),
+            ad_events=[ADEvent.STARTED],
+        )
+        sent: list[TranscriptSegment] = []
+        await orch.process(
+            _SESSION, _landmark_frame(), [_video_health()], ModalityPath.SIGN, sent.append,
+        )
+        assert len(sent) == 1
+        assert sent[0].status == SegmentStatus.PARTIAL
+        assert sent[0].text == "GİT"
+
+    async def test_two_active_windows_emit_growing_phrase(self):
+        """Second ACTIVE window appends a new word → second PARTIAL replaces first."""
+        tsl1 = _result(ModalityType.TSL_RECOGNITION, "YEMEK", 0.80)
+        tsl2 = _result(ModalityType.TSL_RECOGNITION, "OKUL", 0.75)
+        tsl_stub = _StubEngine(tsl1, model_id="tsl")
+        tsl_stub._loaded = True
+
+        mock_ad = _MockAD([ADEvent.ACTIVE, ADEvent.ACTIVE])
+        orch = FusionOrchestrator(window_size=1, activity_detector=mock_ad)
+        orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
+        orch.register_engine(ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl_stub, _cfg("tsl"))
+
+        sent: list[TranscriptSegment] = []
+        await orch.process(_SESSION, _landmark_frame(timestamp_ms=0), [_video_health()], ModalityPath.SIGN, sent.append)
+        # Swap TSL result for second window.
+        tsl_stub._result = tsl2
+        await orch.process(_SESSION, _landmark_frame(timestamp_ms=1), [_video_health()], ModalityPath.SIGN, sent.append)
+
+        assert len(sent) == 2
+        assert sent[0].text == "YEMEK"
+        assert sent[1].text == "YEMEK OKUL"
+        assert sent[1].replaces_segment_id == sent[0].segment_id
+
+    async def test_dedup_same_gloss_no_second_partial(self):
+        """Consecutive identical TSL glosses are deduped — no second PARTIAL."""
+        tsl_result = _result(ModalityType.TSL_RECOGNITION, "YEMEK", 0.70)
+        tsl_stub = _StubEngine(tsl_result, model_id="tsl")
+        tsl_stub._loaded = True
+
+        mock_ad = _MockAD([ADEvent.ACTIVE, ADEvent.ACTIVE])
+        orch = FusionOrchestrator(window_size=1, activity_detector=mock_ad)
+        orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
+        orch.register_engine(ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl_stub, _cfg("tsl"))
+
+        sent: list[TranscriptSegment] = []
+        await orch.process(_SESSION, _landmark_frame(timestamp_ms=0), [_video_health()], ModalityPath.SIGN, sent.append)
+        await orch.process(_SESSION, _landmark_frame(timestamp_ms=1), [_video_health()], ModalityPath.SIGN, sent.append)
+
+        assert len(sent) == 1  # Second window deduped.
+
+    async def test_ended_high_llm_confidence_emits_final_from_llm(self):
+        """ACTIVE accumulates a word, ENDED triggers GlossToText FINAL."""
+        gloss_res = _result(ModalityType.GLOSS_TO_TEXT, "Merhaba.", 0.88)
+        orch = _sign_orch(
+            tsl_result=_result(ModalityType.TSL_RECOGNITION, "MERHABA", 0.80),
+            gloss_result=gloss_res,
+            ad_events=[ADEvent.ACTIVE, ADEvent.ENDED],
+        )
+        sent: list[TranscriptSegment] = []
+        # Frame 1: ACTIVE → window fills → TSL → PARTIAL
+        await orch.process(_SESSION, _landmark_frame(timestamp_ms=0), [_video_health()], ModalityPath.SIGN, sent.append)
+        # Frame 2: ENDED → flush → GlossToText → FINAL
+        await orch.process(_SESSION, _landmark_frame(timestamp_ms=1), [_video_health()], ModalityPath.SIGN, sent.append)
+
+        assert len(sent) == 2
         partial = next(s for s in sent if s.status == SegmentStatus.PARTIAL)
         final = next(s for s in sent if s.status == SegmentStatus.FINAL)
-        assert partial.text == "MERHABA DUNYA"
-        assert final.text == "Merhaba dünya."
-        # replaces_segment_id linking tested after orchestrator _process_sign rewrite.
+        assert final.text == "Merhaba."
+        assert final.source == ModalityType.GLOSS_TO_TEXT
+        assert final.replaces_segment_id == partial.segment_id
 
-    async def test_tsl_timeout_emits_nothing(self):
-        tsl = _StubEngine(None, raise_timeout=True, model_id="tsl")
-        tsl._loaded = True
-
-        orch = FusionOrchestrator(window_size=1)
-        orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
-        orch.register_engine(
-            ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl")
+    async def test_ended_low_llm_confidence_emits_final_from_gloss(self):
+        """LLM confidence below 0.40 → raw gloss becomes FINAL."""
+        gloss_res = _result(ModalityType.GLOSS_TO_TEXT, "Merhaba.", confidence=0.20)
+        orch = _sign_orch(
+            tsl_result=_result(ModalityType.TSL_RECOGNITION, "MERHABA", 0.80),
+            gloss_result=gloss_res,
+            ad_events=[ADEvent.ACTIVE, ADEvent.ENDED],
         )
+        sent: list[TranscriptSegment] = []
+        await orch.process(_SESSION, _landmark_frame(timestamp_ms=0), [_video_health()], ModalityPath.SIGN, sent.append)
+        await orch.process(_SESSION, _landmark_frame(timestamp_ms=1), [_video_health()], ModalityPath.SIGN, sent.append)
 
+        final = next(s for s in sent if s.status == SegmentStatus.FINAL)
+        assert final.text == "MERHABA"
+        assert final.source == ModalityType.TSL_RECOGNITION
+
+    async def test_ended_gloss_timeout_emits_penalised_final(self):
+        """GlossToText timeout on ENDED → raw gloss FINAL with confidence penalty."""
+        orch = _sign_orch(
+            tsl_result=_result(ModalityType.TSL_RECOGNITION, "MERHABA", 0.80),
+            gloss_timeout=True,
+            ad_events=[ADEvent.ACTIVE, ADEvent.ENDED],
+        )
+        sent: list[TranscriptSegment] = []
+        await orch.process(_SESSION, _landmark_frame(timestamp_ms=0), [_video_health()], ModalityPath.SIGN, sent.append)
+        await orch.process(_SESSION, _landmark_frame(timestamp_ms=1), [_video_health()], ModalityPath.SIGN, sent.append)
+
+        final = next(s for s in sent if s.status == SegmentStatus.FINAL)
+        assert final.text == "MERHABA"
+        assert final.confidence < 0.80  # Penalised.
+        partial = next(s for s in sent if s.status == SegmentStatus.PARTIAL)
+        assert final.replaces_segment_id == partial.segment_id
+
+    async def test_ended_empty_accumulator_produces_nothing(self):
+        """ENDED with no accumulated glosses emits nothing."""
+        orch = _sign_orch(
+            gloss_result=_result(ModalityType.GLOSS_TO_TEXT, "x", 0.88),
+            ad_events=[ADEvent.ENDED],
+        )
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION,
-            _landmark_frame(),
-            [_video_health()],
-            ModalityPath.SIGN,
-            sent.append,
+            _SESSION, _landmark_frame(), [_video_health()], ModalityPath.SIGN, sent.append,
         )
         assert sent == []
 
-    async def test_gloss_timeout_promotes_tsl_partial_to_final(self):
-        tsl = _StubEngine(
-            _result(ModalityType.TSL_RECOGNITION, "MERHABA", 0.80), model_id="tsl"
-        )
-        tsl._loaded = True
-        gloss = _StubEngine(None, raise_timeout=True, model_id="gemma")
-        gloss._loaded = True
-
-        orch = FusionOrchestrator(window_size=1)
-        orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
-        orch.register_engine(
-            ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl")
-        )
-        orch.register_engine(
-            ModalityPath.SIGN, ModalityType.GLOSS_TO_TEXT, gloss, _cfg("gemma")
-        )
-
+    async def test_tsl_timeout_on_active_discards_window(self):
+        """TSL timeout during ACTIVE — no PARTIAL emitted, no crash."""
+        orch = _sign_orch(tsl_timeout=True, ad_events=[ADEvent.ACTIVE])
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION,
-            _landmark_frame(),
-            [_video_health()],
-            ModalityPath.SIGN,
-            sent.append,
+            _SESSION, _landmark_frame(), [_video_health()], ModalityPath.SIGN, sent.append,
         )
+        assert sent == []
 
-        # PARTIAL (TSL gloss) + FINAL (promoted from TSL on gloss timeout)
-        assert len(sent) == 2
-        partial = next(s for s in sent if s.status == SegmentStatus.PARTIAL)
-        final = next(s for s in sent if s.status == SegmentStatus.FINAL)
-        # FINAL replaces the PARTIAL
-        assert final.replaces_segment_id == partial.segment_id
-        # FINAL carries TSL raw gloss text (fallback)
-        assert final.text == "MERHABA"
-        # Confidence penalised
-        assert final.confidence < 0.80
-
-    async def test_suppressed_tsl_emits_nothing(self):
-        tsl = _StubEngine(
-            _result(ModalityType.TSL_RECOGNITION, "x", 0.10), model_id="tsl"
+    async def test_suppressed_tsl_produces_nothing(self):
+        """TSL confidence below 0.55 → suppressed, no PARTIAL."""
+        orch = _sign_orch(
+            tsl_result=_result(ModalityType.TSL_RECOGNITION, "noise", 0.10),
+            ad_events=[ADEvent.ACTIVE],
         )
-        tsl._loaded = True
-
-        orch = FusionOrchestrator(window_size=1)
-        orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
-        orch.register_engine(
-            ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl")
-        )
-
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION,
-            _landmark_frame(),
-            [_video_health()],
-            ModalityPath.SIGN,
-            sent.append,
+            _SESSION, _landmark_frame(), [_video_health()], ModalityPath.SIGN, sent.append,
         )
+        assert sent == []
+
+    async def test_window_not_full_produces_nothing(self):
+        """ACTIVE but window not yet full — no inference, no PARTIAL."""
+        orch = _sign_orch(ad_events=[ADEvent.ACTIVE, ADEvent.ACTIVE], window_size=3)
+        sent: list[TranscriptSegment] = []
+        for i in range(2):
+            await orch.process(
+                _SESSION, _landmark_frame(timestamp_ms=i),
+                [_video_health()], ModalityPath.SIGN, sent.append,
+            )
         assert sent == []
 
     async def test_audio_chunk_on_sign_path_is_noop(self):
@@ -821,29 +891,48 @@ class TestResetSession:
         assert all(seg.source == ModalityType.ASR for seg in sent)
 
     async def test_reset_clears_accumulator_buffer(self):
-        """After reset, frame count restarts from zero."""
-        orch = _make_orchestrator(window_size=3, with_sign=True)
+        """After reset, frame count restarts from zero (verified via ACTIVE events)."""
+        # AD always returns ACTIVE so frames reach the accumulator.
+        mock_ad = _MockAD([], default=ADEvent.ACTIVE)
+        tsl = _StubEngine(
+            _result(ModalityType.TSL_RECOGNITION, "MERHABA", 0.80), model_id="tsl"
+        )
+        tsl._loaded = True
+
+        orch = FusionOrchestrator(window_size=3, activity_detector=mock_ad)
+        orch.register_policy(ModalityPath.SIGN, SignFusionPolicy())
+        orch.register_engine(ModalityPath.SIGN, ModalityType.TSL_RECOGNITION, tsl, _cfg("tsl"))
+
         # Push 2 of 3 frames (window not yet full).
         for i in range(2):
             await orch.process(
-                _SESSION,
-                _landmark_frame(timestamp_ms=i),
-                [_video_health()],
-                ModalityPath.SIGN,
-                lambda _: None,
+                _SESSION, _landmark_frame(timestamp_ms=i),
+                [_video_health()], ModalityPath.SIGN, lambda _: None,
             )
         orch.reset_session(_SESSION)
-        # Push 2 more — should still not hit the window (buffer was cleared).
+
+        # After reset, 2 more frames should still not fill the window.
         sent: list[TranscriptSegment] = []
         for i in range(2):
             await orch.process(
-                _SESSION,
-                _landmark_frame(timestamp_ms=i + 10),
-                [_video_health()],
-                ModalityPath.SIGN,
-                sent.append,
+                _SESSION, _landmark_frame(timestamp_ms=i + 10),
+                [_video_health()], ModalityPath.SIGN, sent.append,
             )
         assert sent == []
+
+    async def test_reset_clears_gloss_accumulator(self):
+        """After reset, GlossAccumulator state is cleared for the session."""
+        from sozia.server.fusion.gloss_accumulator import GlossAccumulator, GlossEntry
+
+        gloss_acc = GlossAccumulator()
+        orch = FusionOrchestrator(gloss_accumulator=gloss_acc)
+
+        # Manually seed a gloss entry for the session.
+        gloss_acc.push(_SESSION, GlossEntry("MERHABA", 0.80, 1000, 500))
+        assert not gloss_acc.is_empty(_SESSION)
+
+        orch.reset_session(_SESSION)
+        assert gloss_acc.is_empty(_SESSION)
 
     def test_reset_unknown_session_is_safe(self):
         """reset_session on a session with no state does not raise."""

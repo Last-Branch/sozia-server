@@ -18,7 +18,9 @@ _SESSION_B = "dddddddd-0000-4000-d000-000000000002"
 # ---------------------------------------------------------------------------
 
 
-def _entry(text: str, confidence: float = 0.8, timestamp_ms: int = 0, duration_ms: int = 100) -> GlossEntry:
+def _entry(
+    text: str, confidence: float = 0.8, timestamp_ms: int = 0, duration_ms: int = 100
+) -> GlossEntry:
     return GlossEntry(
         text=text,
         confidence=confidence,
@@ -154,7 +156,7 @@ class TestMaxWordsCap:
         for i, w in enumerate(words):
             result = acc.push(_SESSION, _entry(w))
             if i < 3:
-                assert result is True, f"word {i+1} should be accepted"
+                assert result is True, f"word {i + 1} should be accepted"
             else:
                 assert result is False, "fourth word should be rejected"
 

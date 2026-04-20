@@ -346,9 +346,7 @@ class TestNumpyValues:
     def test_absent_right_hand_yields_zeros(self):
         result = _single_frame_acc().add(_frame(with_right=False))
         right_start = (
-            POSE_LANDMARK_COUNT * 4
-            + FACE_LANDMARK_COUNT * 3
-            + HAND_LANDMARK_COUNT * 3
+            POSE_LANDMARK_COUNT * 4 + FACE_LANDMARK_COUNT * 3 + HAND_LANDMARK_COUNT * 3
         )
         right_slice = result[0, right_start : right_start + HAND_LANDMARK_COUNT * 3]
         assert np.all(right_slice == 0.0)
