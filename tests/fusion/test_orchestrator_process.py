@@ -286,26 +286,18 @@ class TestWarmUpCoolDownUpdated:
 
 class TestProcessSpeech:
     async def test_audio_chunk_emits_partial_via_send_fn(self):
-        # Lip-reading fires on every chunk when face is cached → PARTIAL.
+        # Speech audio sets is_speaking=True. 30 landmark frames trigger lip → PARTIAL.
         orch = _make_orchestrator(with_speech=True)
-        await orch.process(
-            _SESSION,
-            _landmark_frame(),
-            [_video_health()],
-            ModalityPath.SPEECH,
-            lambda _: None,
-        )
 
         sent: list[TranscriptSegment] = []
         await orch.process(
-            _SESSION,
-            _audio_chunk(),
-            [_audio_health()],
-            ModalityPath.SPEECH,
-            sent.append,
+            _SESSION, _audio_chunk(), [_audio_health()], ModalityPath.SPEECH, sent.append
         )
+        for _ in range(30):
+            await orch.process(
+                _SESSION, _landmark_frame(), [_video_health()], ModalityPath.SPEECH, sent.append
+            )
 
-        assert len(sent) >= 1
         assert any(s.status == SegmentStatus.PARTIAL for s in sent)
 
     async def test_audio_chunk_with_cached_face_emits_final(self):
@@ -484,24 +476,22 @@ class TestProcessSpeech:
             assert seg.duration_ms == 750
 
     async def test_lip_then_asr_emits_fused_final_replacing_partial(self):
-        # Lip fires → PARTIAL. ASR flush → FUSED FINAL with replaces_segment_id.
+        # Speech audio → is_speaking. 30 landmarks → lip PARTIAL. ASR flush → FUSED FINAL.
         asr = _StubEngine(_result(ModalityType.ASR, "merhaba", 0.80), model_id="w")
-        lip = _StubEngine(
-            _result(ModalityType.LIP_READING, "merhaba", 0.85), model_id="l"
-        )
+        lip = _StubEngine(_result(ModalityType.LIP_READING, "merhaba", 0.85), model_id="l")
         asr._loaded = True
         lip._loaded = True
 
-        orch = FusionOrchestrator(mel_max_frames=1)
+        orch = FusionOrchestrator()  # large mel_max_frames — no auto flush
         orch.register_policy(ModalityPath.SPEECH, SpeechFusionPolicy())
         orch.register_engine(ModalityPath.SPEECH, ModalityType.ASR, asr, _cfg("w"))
         orch.register_engine(ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l"))
 
-        # Cache face landmarks so lip-reading runs.
-        await orch.process(_SESSION, _landmark_frame(), [_video_health()], ModalityPath.SPEECH, lambda _: None)
-
         sent: list[TranscriptSegment] = []
         await orch.process(_SESSION, _audio_chunk(), [_audio_health()], ModalityPath.SPEECH, sent.append)
+        for _ in range(30):
+            await orch.process(_SESSION, _landmark_frame(), [_video_health()], ModalityPath.SPEECH, sent.append)
+        await orch.flush_speech_pending(_SESSION, [_audio_health()], sent.append)
 
         statuses = [s.status for s in sent]
         assert SegmentStatus.PARTIAL in statuses
@@ -511,23 +501,22 @@ class TestProcessSpeech:
         assert final.replaces_segment_id == partial.segment_id
 
     async def test_asr_timeout_with_lip_cached_promotes_to_final(self):
-        # Lip fires → PARTIAL cached. ASR times out → lip promoted to FINAL.
+        # Speech audio → is_speaking. 30 landmarks → lip PARTIAL cached. ASR times out → LIP FINAL.
         asr = _StubEngine(None, raise_timeout=True, model_id="w")
-        lip = _StubEngine(
-            _result(ModalityType.LIP_READING, "merhaba", 0.85), model_id="l"
-        )
+        lip = _StubEngine(_result(ModalityType.LIP_READING, "merhaba", 0.85), model_id="l")
         asr._loaded = True
         lip._loaded = True
 
-        orch = FusionOrchestrator(mel_max_frames=1)
+        orch = FusionOrchestrator()
         orch.register_policy(ModalityPath.SPEECH, SpeechFusionPolicy())
         orch.register_engine(ModalityPath.SPEECH, ModalityType.ASR, asr, _cfg("w"))
         orch.register_engine(ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l"))
 
-        await orch.process(_SESSION, _landmark_frame(), [_video_health()], ModalityPath.SPEECH, lambda _: None)
-
         sent: list[TranscriptSegment] = []
         await orch.process(_SESSION, _audio_chunk(), [_audio_health()], ModalityPath.SPEECH, sent.append)
+        for _ in range(30):
+            await orch.process(_SESSION, _landmark_frame(), [_video_health()], ModalityPath.SPEECH, sent.append)
+        await orch.flush_speech_pending(_SESSION, [_audio_health()], sent.append)
 
         assert any(s.status == SegmentStatus.PARTIAL for s in sent)
         final_segs = [s for s in sent if s.status == SegmentStatus.FINAL]
@@ -536,16 +525,8 @@ class TestProcessSpeech:
         partial = next(s for s in sent if s.status == SegmentStatus.PARTIAL)
         assert final_segs[0].replaces_segment_id == partial.segment_id
 
-    async def test_lip_partial_carries_audio_chunk_timing(self):
-        """Lip-reading PARTIAL is stamped with AudioFeatureChunk timing."""
-        chunk = AudioFeatureChunk(
-            session_id=_SESSION,
-            timestamp_ms=3000,
-            features=[[0.1]] * 5,
-            feature_type="mfcc",
-            sample_rate_hz=16000,
-            chunk_duration_ms=500,
-        )
+    async def test_lip_partial_fires_after_30_face_frames_during_speech(self):
+        """Lip PARTIAL fires once 30 face frames accumulate during a speech period."""
         lip = _StubEngine(
             _result(ModalityType.LIP_READING, "hello", 0.80), model_id="l"
         )
@@ -553,26 +534,23 @@ class TestProcessSpeech:
 
         orch = FusionOrchestrator()
         orch.register_policy(ModalityPath.SPEECH, SpeechFusionPolicy())
-        orch.register_engine(
-            ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l")
-        )
-
-        await orch.process(
-            _SESSION,
-            _landmark_frame(),
-            [_video_health()],
-            ModalityPath.SPEECH,
-            lambda _: None,
-        )
+        orch.register_engine(ModalityPath.SPEECH, ModalityType.LIP_READING, lip, _cfg("l"))
 
         sent: list[TranscriptSegment] = []
-        await orch.process(
-            _SESSION, chunk, [_audio_health()], ModalityPath.SPEECH, sent.append
-        )
+        # Speech audio marks is_speaking=True.
+        await orch.process(_SESSION, _audio_chunk(), [_audio_health()], ModalityPath.SPEECH, sent.append)
+        assert sent == []  # no lip yet
 
+        # 29 frames — not enough to fire.
+        for _ in range(29):
+            await orch.process(_SESSION, _landmark_frame(), [_video_health()], ModalityPath.SPEECH, sent.append)
+        assert sent == []
+
+        # 30th frame triggers lip inference → PARTIAL.
+        await orch.process(_SESSION, _landmark_frame(), [_video_health()], ModalityPath.SPEECH, sent.append)
         assert len(sent) == 1
-        assert sent[0].timestamp_ms == 3000
-        assert sent[0].duration_ms == 500
+        assert sent[0].status == SegmentStatus.PARTIAL
+        assert sent[0].timestamp_ms > 0
 
 
 # ---------------------------------------------------------------------------

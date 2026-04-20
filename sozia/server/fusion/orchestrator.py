@@ -49,6 +49,12 @@ if TYPE_CHECKING:
 # like DegradedModeHandler's degraded_penalty_factor.
 _GLOSS_TIMEOUT_CONFIDENCE_DEDUCTION = 0.15
 
+# Mirrors MelAccumulator threshold; gates face-frame collection for lip-reading.
+_SPEECH_ENERGY_THRESHOLD = 0.3
+
+# Number of face frames to accumulate before running lip inference.
+_LIP_WINDOW_FRAMES = 30
+
 
 class FusionOrchestrator:
     """Routes inference results to the appropriate fusion policy.
@@ -85,8 +91,12 @@ class FusionOrchestrator:
         self._degraded: DegradedModeHandler = degraded_handler or DegradedModeHandler()
         self._accumulator = FrameAccumulator(window_size=window_size)
         self._mel_accumulator = MelAccumulator(max_frames=mel_max_frames)
-        # Per-session face landmark cache (SPEECH path — fed to LipReadingEngine).
+        # Per-session face landmark cache (SPEECH path — latest frame from client).
         self._face_cache: dict[str, np.ndarray] = {}
+        # Face frames accumulated during speech periods for lip-reading batches.
+        self._face_frame_buffer: dict[str, list[np.ndarray]] = {}
+        # Whether the last audio chunk detected speech energy.
+        self._is_speaking: dict[str, bool] = {}
         # Most recent lip-reading result per session; fused with the next ASR flush.
         self._last_lip_result: dict[str, ModalityResult] = {}
 
@@ -142,6 +152,8 @@ class FusionOrchestrator:
             session_id: The session whose cached state should be discarded.
         """
         self._face_cache.pop(session_id, None)
+        self._face_frame_buffer.pop(session_id, None)
+        self._is_speaking.pop(session_id, None)
         self._last_lip_result.pop(session_id, None)
         self._accumulator.reset(session_id)
         self._mel_accumulator.reset(session_id)
@@ -273,52 +285,29 @@ class FusionOrchestrator:
         send_fn: Callable[[TranscriptSegment], Awaitable[None] | None],
     ) -> None:
         if isinstance(features, LandmarkFrame):
-            # Cache the face landmarks for the next audio chunk.
             if features.face_landmarks is not None:
-                self._face_cache[session_id] = np.asarray(
-                    features.face_landmarks, dtype=np.float32
-                )
+                face = np.asarray(features.face_landmarks, dtype=np.float32)
+                self._face_cache[session_id] = face
+                # Accumulate face frames only during speech periods.
+                if self._is_speaking.get(session_id, False):
+                    self._face_frame_buffer.setdefault(session_id, []).append(face)
+                    if len(self._face_frame_buffer[session_id]) >= _LIP_WINDOW_FRAMES:
+                        await self._run_lip(session_id, health, send_fn)
             return
 
         # AudioFeatureChunk — two independent paths:
-        #   Lip-reading: fires on every chunk → PARTIAL (fast word hints).
+        #   Lip-reading: fires every _LIP_WINDOW_FRAMES face frames during speech.
         #   ASR: fires when MelAccumulator flushes (silence or 15 s) → FINAL.
         audio_np = np.asarray(features.features, dtype=np.float32)
-        face_np = self._face_cache.get(session_id)
+        is_speech = float(np.max(audio_np)) > _SPEECH_ENERGY_THRESHOLD
+        self._is_speaking[session_id] = is_speech
+
+        if not is_speech:
+            # Drop accumulated face frames so stale frames don't cross utterances.
+            self._face_frame_buffer.pop(session_id, None)
 
         path_engines = self._engines.get(ModalityPath.SPEECH, {})
         asr_entry = path_engines.get(ModalityType.ASR)
-        lip_entry = path_engines.get(ModalityType.LIP_READING)
-
-        # --- Lip-reading (every chunk) → PARTIAL ----------------------------
-        if lip_entry is not None and face_np is not None:
-            lip_engine, _ = lip_entry
-            try:
-                lip_result = await lip_engine.predict(face_np)
-                lip_result = dataclasses.replace(
-                    lip_result,
-                    timestamp_ms=features.timestamp_ms,
-                    duration_ms=features.chunk_duration_ms,
-                )
-                policy = self._policies.get(ModalityPath.SPEECH)
-                if isinstance(policy, SpeechFusionPolicy):
-                    if not policy.should_suppress(lip_result):
-                        self._last_lip_result[session_id] = lip_result
-                    lip_segments = policy.emit_lip_partial(lip_result, session_id)
-                    logger.info(
-                        "LIP result: text=%r confidence=%.4f → %s",
-                        lip_result.text,
-                        lip_result.confidence,
-                        "PARTIAL emitted" if lip_segments else "suppressed",
-                    )
-                else:
-                    lip_segments = await self.process_features(
-                        session_id, [lip_result], health, ModalityPath.SPEECH
-                    )
-                for seg in lip_segments:
-                    await _maybe_await(send_fn(seg))
-            except InferenceTimeoutError:
-                logger.warning("LIP inference timed out for session %s", session_id)
 
         # --- ASR (accumulated, utterance-boundary) → FINAL ------------------
         asr_batch = self._mel_accumulator.push(session_id, audio_np)
@@ -329,6 +318,50 @@ class FusionOrchestrator:
         )
         if asr_batch is not None and asr_entry is not None:
             await self._run_asr(session_id, asr_batch, health, send_fn, features)
+
+    async def _run_lip(
+        self,
+        session_id: str,
+        health: list[PipelineHealth],
+        send_fn: Callable[[TranscriptSegment], Awaitable[None] | None],
+    ) -> None:
+        buf = self._face_frame_buffer.get(session_id, [])
+        if len(buf) < _LIP_WINDOW_FRAMES:
+            return
+        batch = np.stack(buf[:_LIP_WINDOW_FRAMES])  # (30, 83, 3)
+        self._face_frame_buffer[session_id] = buf[_LIP_WINDOW_FRAMES:]
+
+        path_engines = self._engines.get(ModalityPath.SPEECH, {})
+        lip_entry = path_engines.get(ModalityType.LIP_READING)
+        if lip_entry is None:
+            return
+        lip_engine, _ = lip_entry
+        try:
+            lip_result = await lip_engine.predict(batch)
+            lip_result = dataclasses.replace(
+                lip_result,
+                timestamp_ms=int(time.time() * 1000),
+                duration_ms=0,
+            )
+            policy = self._policies.get(ModalityPath.SPEECH)
+            if isinstance(policy, SpeechFusionPolicy):
+                if not policy.should_suppress(lip_result):
+                    self._last_lip_result[session_id] = lip_result
+                lip_segments = policy.emit_lip_partial(lip_result, session_id)
+                logger.info(
+                    "LIP result: text=%r confidence=%.4f → %s",
+                    lip_result.text,
+                    lip_result.confidence,
+                    "PARTIAL emitted" if lip_segments else "suppressed",
+                )
+            else:
+                lip_segments = await self.process_features(
+                    session_id, [lip_result], health, ModalityPath.SPEECH
+                )
+            for seg in lip_segments:
+                await _maybe_await(send_fn(seg))
+        except InferenceTimeoutError:
+            logger.warning("LIP inference timed out for session %s", session_id)
 
     async def _run_asr(
         self,
