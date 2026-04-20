@@ -14,6 +14,7 @@ Latency budget: ≤ 2000 ms.
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 import time
 from typing import TYPE_CHECKING, Any
@@ -78,7 +79,8 @@ class GlossToTextEngine(InferenceEngine):
 
     async def load_model(self, config: ModelConfig) -> None:
         self._base_model_id = config.params.get(
-            "base_model_id", "google/gemma-2-9b-it",
+            "base_model_id",
+            "google/gemma-2-9b-it",
         )
         self._instruction = config.params.get("instruction", _DEFAULT_INSTRUCTION)
         self._max_new_tokens = config.params.get("max_new_tokens", 128)
@@ -86,6 +88,7 @@ class GlossToTextEngine(InferenceEngine):
         self._repetition_penalty = config.params.get("repetition_penalty", 1.15)
         self._use_autocast = config.params.get("use_autocast", True)
         load_in_4bit = config.params.get("load_in_4bit", True)
+        merged = config.params.get("merged", False)
 
         model, tokenizer = await asyncio.to_thread(
             self._load_model_sync,
@@ -93,6 +96,7 @@ class GlossToTextEngine(InferenceEngine):
             adapter_path=config.weights_path,
             device=config.device,
             load_in_4bit=load_in_4bit,
+            merged=merged,
         )
 
         self._model = model
@@ -123,7 +127,7 @@ class GlossToTextEngine(InferenceEngine):
         start = time.perf_counter()
 
         try:
-            raw_text = await asyncio.wait_for(
+            raw_text, confidence = await asyncio.wait_for(
                 asyncio.to_thread(self._generate, prompt),
                 timeout=timeout_ms / 1000.0,
             )
@@ -135,8 +139,8 @@ class GlossToTextEngine(InferenceEngine):
         latency_ms = int((time.perf_counter() - start) * 1000)
         text = _polish_turkish(raw_text)
 
-        # Confidence heuristic: non-empty output with proper ending → high.
-        confidence = 0.85 if text else 0.0
+        if not text:
+            confidence = 0.0
 
         return ModalityResult(
             modality_type=ModalityType.GLOSS_TO_TEXT,
@@ -170,16 +174,18 @@ class GlossToTextEngine(InferenceEngine):
         adapter_path: str,
         device: str,
         load_in_4bit: bool,
+        merged: bool = False,
     ) -> tuple:
         """Synchronous model + tokenizer loading (runs in thread)."""
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        tokenizer = AutoTokenizer.from_pretrained(base_model_id)
+        model_path = adapter_path if merged else base_model_id
+        tokenizer = AutoTokenizer.from_pretrained(model_path)
         tokenizer.pad_token = tokenizer.eos_token
 
         load_kwargs: dict[str, Any] = {
             "device_map": "auto" if device == "cuda" else None,
-            "torch_dtype": torch.bfloat16,
+            "dtype": torch.bfloat16,
             "attn_implementation": "sdpa",
         }
 
@@ -191,17 +197,17 @@ class GlossToTextEngine(InferenceEngine):
                 bnb_4bit_compute_dtype=torch.bfloat16,
             )
 
-        base_model = AutoModelForCausalLM.from_pretrained(
-            base_model_id, **load_kwargs,
-        )
+        model = AutoModelForCausalLM.from_pretrained(model_path, **load_kwargs)
 
-        from peft import PeftModel
+        if not merged:
+            from peft import PeftModel
 
-        model = PeftModel.from_pretrained(base_model, adapter_path)
+            model = PeftModel.from_pretrained(model, adapter_path)
+
         model.eval()
         return model, tokenizer
 
-    def _generate(self, prompt: str) -> str:
+    def _generate(self, prompt: str) -> tuple[str, float]:
         """Synchronous generation — runs in thread."""
         inputs = self._tokenizer(prompt, return_tensors="pt")
         input_ids = inputs.input_ids.to(self._device)
@@ -215,6 +221,8 @@ class GlossToTextEngine(InferenceEngine):
             "num_beams": self._beam_size,
             "repetition_penalty": self._repetition_penalty,
             "do_sample": False,
+            "return_dict_in_generate": True,
+            "output_scores": True,
         }
 
         with torch.no_grad():
@@ -224,8 +232,31 @@ class GlossToTextEngine(InferenceEngine):
             else:
                 outputs = self._model.generate(**gen_kwargs)
 
-        new_tokens = outputs[0][input_len:]
-        return self._tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+        new_tokens = outputs.sequences[0][input_len:]
+        text = self._tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+        confidence = _extract_confidence(outputs)
+        del outputs
+        return text, confidence
+
+
+# ---------------------------------------------------------------------------
+# Confidence extraction (mirrors WhisperAsrEngine._extract_confidence)
+# ---------------------------------------------------------------------------
+
+
+def _extract_confidence(output) -> float:
+    """Derive a [0, 1] confidence from beam generation output.
+
+    Uses ``sequences_scores`` (length-normalised sum of log-probs) when
+    available — the natural result of ``num_beams > 1`` with
+    ``return_dict_in_generate=True, output_scores=True``.
+    Falls back to ``exp(-1.0)`` ≈ 0.37 if the field is absent.
+    """
+    if hasattr(output, "sequences_scores") and output.sequences_scores is not None:
+        score = float(output.sequences_scores[0])
+    else:
+        score = -1.0
+    return max(0.0, min(1.0, math.exp(score)))
 
 
 # ---------------------------------------------------------------------------

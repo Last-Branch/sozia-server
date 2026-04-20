@@ -275,7 +275,7 @@ class TslRecognitionEngine(InferenceEngine):
         ckpt_path = run_dir / "best_model.pt"
         if not ckpt_path.exists():
             raise FileNotFoundError(f"No best_model.pt in {run_dir}")
-        state_dict = torch.load(ckpt_path, map_location=device, weights_only=True)
+        state_dict = torch.load(ckpt_path, map_location=device, weights_only=False)
         model.load_state_dict(state_dict)
         model.to(device)
         model.eval()

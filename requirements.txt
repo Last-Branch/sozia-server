@@ -5,6 +5,10 @@ torch>=2.0.0
 numpy>=1.24.0
 transformers>=4.40
 huggingface_hub>=0.20
+peft>=0.10.0
+accelerate>=0.30.0
+bitsandbytes>=0.43.0
+scikit-learn>=1.4.0
 
 # dev
 pytest>=8.0.0
