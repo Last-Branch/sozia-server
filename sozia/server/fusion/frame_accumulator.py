@@ -2,9 +2,11 @@
 
 TslRecognitionEngine.predict() expects a (T, feature_dim) numpy array — a
 multi-frame sequence. The WebSocket gateway delivers one LandmarkFrame per
-message. FrameAccumulator buffers frames per session and emits a numpy batch
-when the window threshold is reached (R7: buffering and inference triggering
-stay inside sozia.server.fusion, not the gateway).
+message. FrameAccumulator buffers frames per session and emits overlapping
+numpy batches using a rolling window (window_size=30, stride=10 by default).
+
+ActivityDetector decides whether the signer is active. FrameAccumulator only
+buffers and batches — no hands-presence gating here.
 
 Feature vector layout per frame (concatenated; zero-filled if absent):
     pose:       33 × 4 = 132 dims  (x, y, z, visibility)
@@ -29,7 +31,6 @@ from sozia.common.models import (
     LandmarkFrame,
 )
 
-# Flat feature vector length per frame — derived from LandmarkFrame structure.
 FEATURE_DIM: int = (
     POSE_LANDMARK_COUNT * 4  # x, y, z, visibility
     + FACE_LANDMARK_COUNT * 3
@@ -71,27 +72,32 @@ def _frame_to_row(frame: LandmarkFrame) -> np.ndarray:
 
 
 class FrameAccumulator:
-    """Buffers LandmarkFrame objects per session and emits numpy batches.
+    """Buffers LandmarkFrame objects per session and emits overlapping numpy batches.
 
-    Usage::
-
-        accumulator = FrameAccumulator(window_size=30)
-        batch = accumulator.add(frame)  # returns None until window is full
-        if batch is not None:
-            result = await tsl_engine.predict(batch)  # shape (30, 474)
+    Uses a rolling window: once window_size frames are collected, a batch is
+    emitted and the oldest stride frames are dropped. The buffer then retains
+    window_size - stride frames as the overlap for the next window.
 
     Args:
-        window_size: Number of frames to collect before emitting a batch.
-            Defaults to 30, matching a typical ~1 s window at 30 fps.
+        window_size: Number of frames per emitted batch. Defaults to 30.
+        stride: Frames dropped after each emission. Defaults to
+            ``min(10, window_size)`` when ``None``.
+            ``stride < window_size`` → overlapping windows.
+            ``stride == window_size`` → tumbling (non-overlapping) windows.
+
+    Raises:
+        ValueError: If an explicit stride is not in ``[1, window_size]``.
     """
 
-    _MIN_FLUSH_FRAMES: int = 10  # ignore flushes shorter than this
-
-    def __init__(self, window_size: int = 30) -> None:
+    def __init__(self, window_size: int = 30, stride: int | None = None) -> None:
+        effective_stride = stride if stride is not None else min(10, window_size)
+        if not (1 <= effective_stride <= window_size):
+            raise ValueError(
+                f"stride must be in [1, window_size]; got stride={effective_stride}, window_size={window_size}"
+            )
         self._window_size = window_size
+        self._stride = effective_stride
         self._buffers: dict[str, list[LandmarkFrame]] = {}
-        self._prev_hands: dict[str, bool] = {}  # last known hand-presence per session
-        self._hands_in_window: dict[str, bool] = {}  # any hands seen in current window
 
     # ------------------------------------------------------------------
     # Public API
@@ -100,47 +106,24 @@ class FrameAccumulator:
     def add(self, frame: LandmarkFrame) -> np.ndarray | None:
         """Append a frame to the session buffer.
 
-        Flushes the buffer early when hands disappear after being present
-        (falling edge), so a sign is never split across two windows.
-        Flushes at window_size normally.
+        Returns a batch when the rolling window is full. After emission, the
+        oldest stride frames are dropped and the buffer retains the overlap.
 
         Args:
             frame: A LandmarkFrame received from the WebSocket gateway.
 
         Returns:
-            A numpy array of shape ``(T, FEATURE_DIM)`` on flush, else ``None``.
+            A numpy array of shape ``(window_size, FEATURE_DIM)`` on flush,
+            else ``None``.
         """
         sid = frame.session_id
         buf = self._buffers.setdefault(sid, [])
-        has_hands = (
-            frame.left_hand_landmarks is not None
-            or frame.right_hand_landmarks is not None
-        )
-        prev_hands = self._prev_hands.get(sid, False)
-        self._prev_hands[sid] = has_hands
-        if has_hands:
-            self._hands_in_window[sid] = True
-
-        # Falling edge: hands just disappeared — flush what we have.
-        if prev_hands and not has_hands:
-            if len(buf) >= self._MIN_FLUSH_FRAMES and self._hands_in_window.get(sid):
-                batch = self._to_numpy(buf)
-                self._buffers[sid] = []
-                self._hands_in_window[sid] = False
-                return batch
-            # Too few frames or no hands — discard noise.
-            self._buffers[sid] = []
-            self._hands_in_window[sid] = False
-            return None
-
         buf.append(frame)
 
         if len(buf) >= self._window_size:
-            batch = self._to_numpy(buf)
-            had_hands = self._hands_in_window.get(sid, False)
-            self._buffers[sid] = []
-            self._hands_in_window[sid] = False
-            return batch if had_hands else None
+            batch = self._to_numpy(buf[: self._window_size])
+            self._buffers[sid] = buf[self._stride :]
+            return batch
 
         return None
 
@@ -153,8 +136,6 @@ class FrameAccumulator:
             session_id: The session whose buffer should be cleared.
         """
         self._buffers.pop(session_id, None)
-        self._prev_hands.pop(session_id, None)
-        self._hands_in_window.pop(session_id, None)
 
     def pending_count(self, session_id: str) -> int:
         """Return the number of frames currently buffered for a session.
@@ -163,7 +144,7 @@ class FrameAccumulator:
             session_id: Session to query.
 
         Returns:
-            Integer count in range ``[0, window_size)``.
+            Integer frame count.
         """
         return len(self._buffers.get(session_id, []))
 
