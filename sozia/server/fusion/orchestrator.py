@@ -384,7 +384,9 @@ class FusionOrchestrator:
         features: AudioFeatureChunk | None = None,
     ) -> None:
         if asr_batch.shape[0] < 100:
-            logger.debug("asr_batch too short (%d frames), skipping", asr_batch.shape[0])
+            logger.debug(
+                "asr_batch too short (%d frames), skipping", asr_batch.shape[0]
+            )
             return
         path_engines = self._engines.get(ModalityPath.SPEECH, {})
         asr_entry = path_engines.get(ModalityType.ASR)
@@ -401,12 +403,15 @@ class FusionOrchestrator:
             )
             if asr_result.confidence < 0.30:
                 logger.info(
-                    "ASR result suppressed (confidence=%.4f < 0.30)", asr_result.confidence
+                    "ASR result suppressed (confidence=%.4f < 0.30)",
+                    asr_result.confidence,
                 )
                 return
             asr_result = dataclasses.replace(
                 asr_result,
-                timestamp_ms=features.timestamp_ms if features is not None else int(time.time() * 1000),
+                timestamp_ms=features.timestamp_ms
+                if features is not None
+                else int(time.time() * 1000),
                 duration_ms=features.chunk_duration_ms if features is not None else 0,
             )
             policy = self._policies.get(ModalityPath.SPEECH)
@@ -418,7 +423,9 @@ class FusionOrchestrator:
                         lip_cached.text,
                         lip_cached.confidence,
                     )
-                    asr_segments = policy.emit_fused_final(asr_result, lip_cached, session_id)
+                    asr_segments = policy.emit_fused_final(
+                        asr_result, lip_cached, session_id
+                    )
                 else:
                     logger.info("ASR flush: no lip cached → standalone ASR FINAL")
                     asr_segments = policy.emit_asr_final(asr_result, session_id)
@@ -441,7 +448,10 @@ class FusionOrchestrator:
                     for seg in policy.promote_partial_to_final(session_id, lip_cached):
                         await _maybe_await(send_fn(seg))
             else:
-                logger.warning("ASR timeout: no lip cached, segment lost for session %s", session_id)
+                logger.warning(
+                    "ASR timeout: no lip cached, segment lost for session %s",
+                    session_id,
+                )
 
     async def _process_sign(
         self,
