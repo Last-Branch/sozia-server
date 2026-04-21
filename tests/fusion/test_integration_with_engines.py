@@ -287,6 +287,35 @@ class TestDegradedIntegration:
         # 0.70 - 0.15 = 0.55
         assert abs(segments[0].confidence - 0.55) < 0.001
 
+    async def test_low_snr_with_lip_reading_fusion_favours_lip(self):
+        """Low SNR + both modalities: fusion runs without penalty, lip text wins.
+
+        With two results process_features bypasses the degraded handler and calls
+        policy.fuse directly.  The higher-confidence lip result should win, which
+        is exactly the 'increased lip-reading reliance' leg of TC-24.
+        """
+        asr = _StubEngine(_result(ModalityType.ASR, "gürültü", 0.60))
+        lip = _StubEngine(_result(ModalityType.LIP_READING, "net konuşma", 0.75))
+        await asr.load_model(_config("whisper-small-tr"))
+        await lip.load_model(_config("lip-reading-v1"))
+
+        asr_out = await asr.predict(features=None)
+        lip_out = await lip.predict(features=None)
+
+        orch = _build_orchestrator()
+        segments = await orch.process_features(
+            _SESSION,
+            [asr_out, lip_out],
+            [_audio_health(snr=2.0)],
+            ModalityPath.SPEECH,
+        )
+
+        assert len(segments) == 1
+        seg = segments[0]
+        assert seg.status == SegmentStatus.FINAL
+        assert seg.text == "net konuşma"
+        assert seg.source == ModalityType.LIP_READING
+
 
 # ---------------------------------------------------------------------------
 # Engine lifecycle + fusion contract
