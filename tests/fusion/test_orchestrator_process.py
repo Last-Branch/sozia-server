@@ -97,7 +97,7 @@ def _landmark_frame(
         face_landmarks=[[0.1, 0.2, 0.3]] * FACE_LANDMARK_COUNT,
         left_hand_landmarks=[[0.5, 0.5, 0.5]] * HAND_LANDMARK_COUNT,
         right_hand_landmarks=[[0.5, 0.5, 0.5]] * HAND_LANDMARK_COUNT,
-        pose_landmarks=[[i / n, (n - 1 - i) / n, float(i)] for i in range(n)],
+        pose_landmarks=[[i / n, (n - 1 - i) / n, float(i), 1.0] for i in range(n)],
     )
 
 
