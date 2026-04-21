@@ -107,8 +107,8 @@ class FusionOrchestrator:
         self._face_frame_buffer: dict[str, list[np.ndarray]] = {}
         # Whether the last audio chunk detected speech energy.
         self._is_speaking: dict[str, bool] = {}
-        # Most recent lip-reading result per session; fused with the next ASR flush.
-        self._last_lip_result: dict[str, ModalityResult] = {}
+        # Lip-reading results accumulated during an utterance; fused with ASR at flush.
+        self._lip_buffer: dict[str, list[ModalityResult]] = {}
 
     # ------------------------------------------------------------------
     # Registration
@@ -164,7 +164,7 @@ class FusionOrchestrator:
         self._face_cache.pop(session_id, None)
         self._face_frame_buffer.pop(session_id, None)
         self._is_speaking.pop(session_id, None)
-        self._last_lip_result.pop(session_id, None)
+        self._lip_buffer.pop(session_id, None)
         self._accumulator.reset(session_id)
         self._mel_accumulator.reset(session_id)
         self._activity_detector.reset(session_id)
@@ -315,8 +315,10 @@ class FusionOrchestrator:
         self._is_speaking[session_id] = is_speech
 
         if not is_speech:
-            # Drop accumulated face frames so stale frames don't cross utterances.
+            # Drop accumulated face frames and lip results so stale data
+            # doesn't cross utterance boundaries.
             self._face_frame_buffer.pop(session_id, None)
+            self._lip_buffer.pop(session_id, None)
 
         path_engines = self._engines.get(ModalityPath.SPEECH, {})
         asr_entry = path_engines.get(ModalityType.ASR)
@@ -358,7 +360,7 @@ class FusionOrchestrator:
             policy = self._policies.get(ModalityPath.SPEECH)
             if isinstance(policy, SpeechFusionPolicy):
                 if not policy.should_suppress(lip_result):
-                    self._last_lip_result[session_id] = lip_result
+                    self._lip_buffer.setdefault(session_id, []).append(lip_result)
                 lip_segments = policy.emit_lip_partial(lip_result, session_id)
                 logger.info(
                     "LIP result: text=%r confidence=%.4f → %s",
@@ -415,11 +417,13 @@ class FusionOrchestrator:
                 duration_ms=features.chunk_duration_ms if features is not None else 0,
             )
             policy = self._policies.get(ModalityPath.SPEECH)
-            lip_cached = self._last_lip_result.pop(session_id, None)
+            lip_entries = self._lip_buffer.pop(session_id, None) or []
+            lip_cached = self._combine_lip_results(lip_entries) if lip_entries else None
             if isinstance(policy, SpeechFusionPolicy):
                 if lip_cached is not None:
                     logger.info(
-                        "ASR flush: lip cached (text=%r conf=%.4f) → FUSED FINAL",
+                        "ASR flush: lip accumulated (%d words, text=%r conf=%.4f) → FUSED FINAL",
+                        len(lip_entries),
                         lip_cached.text,
                         lip_cached.confidence,
                     )
@@ -427,7 +431,7 @@ class FusionOrchestrator:
                         asr_result, lip_cached, session_id
                     )
                 else:
-                    logger.info("ASR flush: no lip cached → standalone ASR FINAL")
+                    logger.info("ASR flush: no lip accumulated → standalone ASR FINAL")
                     asr_segments = policy.emit_asr_final(asr_result, session_id)
             else:
                 asr_segments = await self.process_features(
@@ -436,10 +440,12 @@ class FusionOrchestrator:
             for seg in asr_segments:
                 await _maybe_await(send_fn(seg))
         except InferenceTimeoutError:
-            lip_cached = self._last_lip_result.pop(session_id, None)
+            lip_entries = self._lip_buffer.pop(session_id, None) or []
+            lip_cached = self._combine_lip_results(lip_entries) if lip_entries else None
             if lip_cached is not None:
                 logger.info(
-                    "ASR timeout: promoting lip PARTIAL to FINAL (text=%r conf=%.4f)",
+                    "ASR timeout: promoting accumulated lip to FINAL (%d words, text=%r conf=%.4f)",
+                    len(lip_entries),
                     lip_cached.text,
                     lip_cached.confidence,
                 )
@@ -449,7 +455,7 @@ class FusionOrchestrator:
                         await _maybe_await(send_fn(seg))
             else:
                 logger.warning(
-                    "ASR timeout: no lip cached, segment lost for session %s",
+                    "ASR timeout: no lip accumulated, segment lost for session %s",
                     session_id,
                 )
 
@@ -672,6 +678,23 @@ class FusionOrchestrator:
     def _is_degraded(self, health: list[PipelineHealth]) -> bool:
         """Return True if any health signal indicates degraded state."""
         return any(self._degraded.should_fallback(h) for h in health)
+
+    @staticmethod
+    def _combine_lip_results(results: list[ModalityResult]) -> ModalityResult:
+        """Merge accumulated per-window lip hypotheses into a single ModalityResult.
+
+        Text is joined in arrival order. Confidence is averaged across windows
+        so a single low-confidence word doesn't drag down the whole phrase.
+        Duration is summed; timestamp taken from the first result.
+        """
+        text = " ".join(r.text for r in results if r.text)
+        confidence = sum(r.confidence for r in results) / len(results)
+        return dataclasses.replace(
+            results[0],
+            text=text,
+            confidence=confidence,
+            duration_ms=sum(r.duration_ms for r in results),
+        )
 
 
 # ---------------------------------------------------------------------------
