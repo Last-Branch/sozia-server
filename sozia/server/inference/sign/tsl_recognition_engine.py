@@ -281,6 +281,7 @@ class TslRecognitionEngine(InferenceEngine):
         state_dict = torch.load(ckpt_path, map_location=device, weights_only=False)
         model.load_state_dict(state_dict)
         model.to(device)
+        model.float()  # checkpoint may be BFloat16 on RTX 5090; normalise to float32
         model.eval()
 
         # Load scaler.
