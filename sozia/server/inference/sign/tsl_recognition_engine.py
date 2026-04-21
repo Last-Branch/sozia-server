@@ -229,8 +229,11 @@ class TslRecognitionEngine(InferenceEngine):
         x = torch.tensor(kp_array, dtype=torch.float32).unsqueeze(0).to(self._device)
         lengths = torch.tensor([actual_length], dtype=torch.long).to(self._device)
 
-        with torch.no_grad():
-            logits = self._model(x, lengths=lengths)
+        # Disable autocast: GlossToTextEngine runs bfloat16 autocast on shared
+        # thread-pool threads; without this guard the TSL BatchNorm receives
+        # BFloat16 tensors and raises a dtype mismatch.
+        with torch.no_grad(), torch.amp.autocast("cuda", enabled=False):
+            logits = self._model(x.float(), lengths=lengths)
             probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
 
         top_k = min(5, len(probs))
