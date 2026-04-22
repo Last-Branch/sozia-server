@@ -23,9 +23,7 @@ _SESSION_B = "660e8400-e29b-41d4-a716-446655440000"
 
 def _pose() -> list[list[float]]:
     n = POSE_LANDMARK_COUNT
-    # LandmarkFrame validates exactly 3 coordinates per point; _flatten_pose
-    # pads visibility=1.0 internally when the 4th component is absent.
-    return [[i / n, (n - 1 - i) / n, float(i)] for i in range(n)]
+    return [[i / n, (n - 1 - i) / n, float(i), 0.9] for i in range(n)]
 
 
 def _face() -> list[list[float]]:
@@ -352,19 +350,18 @@ class TestNumpyValues:
         assert np.all(right_slice == 0.0)
 
     def test_pose_xyz_values_match(self):
-        # _flatten_pose interleaves visibility=1.0 after each (x, y, z).
         frame = _frame(with_face=False, with_left=False, with_right=False)
         result = _single_frame_acc().add(frame)
-        raw = np.asarray(_pose(), dtype=np.float32)  # shape (33, 3)
+        raw = np.asarray(_pose(), dtype=np.float32)  # shape (33, 4)
         xyz_indices = [i * 4 + c for i in range(POSE_LANDMARK_COUNT) for c in range(3)]
-        np.testing.assert_array_almost_equal(result[0, xyz_indices], raw.ravel())
+        np.testing.assert_array_almost_equal(result[0, xyz_indices], raw[:, :3].ravel())
 
-    def test_pose_visibility_padded_to_1(self):
-        # _flatten_pose pads visibility=1.0 when only (x, y, z) are provided.
+    def test_pose_visibility_forwarded(self):
+        # _flatten_pose passes through the real visibility value from the client.
         frame = _frame(with_face=False, with_left=False, with_right=False)
         result = _single_frame_acc().add(frame)
         visibility_indices = [3 + i * 4 for i in range(POSE_LANDMARK_COUNT)]
-        assert np.all(result[0, visibility_indices] == 1.0)
+        np.testing.assert_array_almost_equal(result[0, visibility_indices], 0.9)
 
     def test_dtype_is_float32(self):
         result = _single_frame_acc().add(_frame())

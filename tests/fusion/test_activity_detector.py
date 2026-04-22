@@ -28,11 +28,11 @@ def _pose_at(wx: float = 0.5, wy: float = 0.5) -> list[list[float]]:
     Indices 15 (left wrist) and 16 (right wrist) are set to (wx, wy, 0.0).
     All other points are (0.0, 0.0, 0.0).
     """
-    points = [[0.0, 0.0, 0.0]] * POSE_LANDMARK_COUNT
+    points = [[0.0, 0.0, 0.0, 1.0]] * POSE_LANDMARK_COUNT
     # list is shared — replace with distinct lists to avoid aliasing
     points = [list(p) for p in points]
-    points[15] = [wx, wy, 0.0]
-    points[16] = [wx, wy, 0.0]
+    points[15] = [wx, wy, 0.0, 1.0]
+    points[16] = [wx, wy, 0.0, 1.0]
     return points
 
 

@@ -91,22 +91,25 @@ def _validate_landmark_array(
     expected_len: int,
     name: str,
     check_xy_unit_range: bool = False,
+    components: int = 3,
 ) -> None:
     """Validate a landmark array's length and point dimensions.
 
     Args:
-        arr: 2-D list of landmark points, each [x, y, z].
+        arr: 2-D list of landmark points.
         expected_len: Required number of points.
         name: Field name for error messages.
         check_xy_unit_range: If True, enforce x and y coords in [0.0, 1.0].
             z is always unconstrained (MediaPipe relative depth).
+        components: Expected number of values per point. 3 for face/hand
+            ([x, y, z]), 4 for pose ([x, y, z, visibility]).
     """
     if len(arr) != expected_len:
         raise ValueError(f"{name} must have {expected_len} points, got {len(arr)}")
     for i, point in enumerate(arr):
-        if len(point) != 3:
+        if len(point) != components:
             raise ValueError(
-                f"{name}[{i}] must have 3 coordinates [x, y, z], got {len(point)}"
+                f"{name}[{i}] must have {components} coordinates, got {len(point)}"
             )
         if check_xy_unit_range:
             x, y = point[0], point[1]
@@ -276,7 +279,7 @@ class LandmarkFrame:
             detected.
         left_hand_landmarks: 21 × [x, y, z]. None if not detected.
         right_hand_landmarks: 21 × [x, y, z]. None if not detected.
-        pose_landmarks: 33 × [x, y, z]. None if not detected.
+        pose_landmarks: 33 × [x, y, z, visibility]. None if not detected.
     """
 
     session_id: str
@@ -328,6 +331,7 @@ class LandmarkFrame:
                 POSE_LANDMARK_COUNT,
                 "pose_landmarks",
                 check_xy_unit_range=False,
+                components=4,
             )
 
 

@@ -268,7 +268,7 @@ class TestLandmarkFrame:
     def _make(self, **kwargs):
         face = [[0.5, 0.5, 0.0]] * 83
         hand = [[0.5, 0.5, 0.0]] * 21
-        pose = [[0.5, 0.5, 0.0]] * 33
+        pose = [[0.5, 0.5, 0.0, 0.9]] * 33
         defaults = dict(
             session_id="550e8400-e29b-41d4-a716-446655440000",
             timestamp_ms=0,
@@ -322,7 +322,11 @@ class TestLandmarkFrame:
 
     def test_pose_wrong_length_raises(self):
         with pytest.raises(ValueError):
-            self._make(pose_landmarks=[[0.5, 0.5, 0.0]] * 10)
+            self._make(pose_landmarks=[[0.5, 0.5, 0.0, 0.9]] * 10)
+
+    def test_pose_missing_visibility_raises(self):
+        with pytest.raises(ValueError):
+            self._make(pose_landmarks=[[0.5, 0.5, 0.0]] * 33)
 
     def test_point_wrong_dims_raises(self):
         bad = [[0.5, 0.5]] * 83  # missing z
